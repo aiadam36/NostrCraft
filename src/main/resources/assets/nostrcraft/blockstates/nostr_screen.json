@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": { "model": "nostrcraft:nostr_screen" },
+    "facing=east":  { "model": "nostrcraft:nostr_screen", "y": 90 },
+    "facing=south": { "model": "nostrcraft:nostr_screen", "y": 180 },
+    "facing=west":  { "model": "nostrcraft:nostr_screen", "y": 270 }
+  }
+}

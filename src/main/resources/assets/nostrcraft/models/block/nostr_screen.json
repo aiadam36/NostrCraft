@@ -1,0 +1,12 @@
+{
+  "parent": "block/cube",
+  "textures": {
+    "particle": "nostrcraft:blocks/nostr_screen_side",
+    "down":  "nostrcraft:blocks/nostr_screen_side",
+    "up":    "nostrcraft:blocks/nostr_screen_side",
+    "north": "nostrcraft:blocks/nostr_screen_front",
+    "east":  "nostrcraft:blocks/nostr_screen_side",
+    "south": "nostrcraft:blocks/nostr_screen_side",
+    "west":  "nostrcraft:blocks/nostr_screen_side"
+  }
+}
