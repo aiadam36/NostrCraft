@@ -25,7 +25,7 @@ public class BlockNostrScreen extends BlockHorizontal {
     public BlockNostrScreen() {
         super(Material.IRON);
         setRegistryName(NostrCraft.MODID, "nostr_screen");
-        setUnlocalizedName(NostrCraft.MODID + ".nostr_screen");
+        setTranslationKey(NostrCraft.MODID + ".nostr_screen");
         setCreativeTab(CreativeTabs.REDSTONE);
         setHardness(3.0F);
         setResistance(10.0F);
@@ -39,7 +39,7 @@ public class BlockNostrScreen extends BlockHorizontal {
 
     @Override
     public IBlockState getStateFromMeta(int meta) {
-        return getDefaultState().withProperty(FACING, EnumFacing.getHorizontal(meta));
+        return getDefaultState().withProperty(FACING, EnumFacing.byHorizontalIndex(meta));
     }
 
     @Override
