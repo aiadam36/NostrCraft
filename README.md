@@ -1,0 +1,2 @@
+# NostrCraft
+Nostr in Minecraft!
