@@ -62,19 +62,17 @@ client/   TESRNostrScreen (draws text on the block), GuiNostrFeed, GuiNostrLogin
 
 ## Ideas / next steps
 
-- NIP-10 threads & replies
-- NIP-25 reactions (right-click a note to like)
 - NIP-02 follow list as a "Following" feed
 - NIP-05 verified names
-- NIP-65 relay lists
+- NIP-07 browser-based signing
+- NIP-10 threads & replies
+- NIP-18 reposts
+- NIP-22 comment
+- NIP-25 reactions (right-click a note to like)
 - NIP-42 auth
 - NIP-46 remote signing
-- NIP-07 browser-based signing
+- NIP-57 zaps
+- NIP-65 relay lists
 - NIP-89 client tag
-- NIP-02 follow list
-- NIP-22 comment
-- NIP-18 reposts
-- NIP-25 reactions
 - per-block filters (hashtag / author / relay) stored in `TileNostrScreen`
 - profile pictures via a texture cache
-- zaps
