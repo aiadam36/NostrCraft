@@ -47,9 +47,9 @@ No extra libraries: Gson and Netty (WebSocket + TLS) already ship with Minecraft
 ## Layout
 
 ```
-nostr/    pure Java, no Minecraft imports: Schnorr, Bech32, NostrEvent, RelayConnection (Netty ws), NostrClient
-block/    BlockNostrScreen + TileNostrScreen (marker TE)
-client/   TESRNostrScreen (draws text on the block), GuiNostrFeed, GuiNostrLogin, /nostr command
+src/main/java/com/nostrcraft/block/ -> BlockNostrScreen + TileNostrScreen (marker TE)
+src/main/java/com/nostrcraft/client/ -> TESRNostrScreen (draws text on the block), GuiNostrFeed, GuiNostrLogin, /nostr command
+src/main/java/com/nostrcraft/nostr/ -> Schnorr, Bech32, NostrEvent, RelayConnection (Netty ws), NostrClient
 ```
 
 ## Security notes
