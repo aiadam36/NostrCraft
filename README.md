@@ -54,11 +54,10 @@ client/   TESRNostrScreen (draws text on the block), GuiNostrFeed, GuiNostrLogin
 
 ## Security notes
 
-* Your secret key is stored **in plain text** in `config/nostrcraft.json` (owner-only permissions where the OS allows).
-  Use a throwaway identity, or implement NIP-46 (remote signer) before real use.
-* The Schnorr code is not constant-time. Fine for a game client, not for a server handling many keys.
-* All relay-supplied text is stripped of `§` formatting codes and control characters before display.
-* Old Java 8 builds may lack the root CA for some relays' TLS certs; update Java 8 or edit relays with `/nostr relay`.
+- Secret key is stored **in plain text** in `config/nostrcraft.json`, need to implement NIP-46 (remote signer) before real use
+- The Schnorr code is not constant-time. Fine for a game client, not for a server handling many keys
+- All relay-supplied text is stripped of `§` formatting codes and control characters before display
+- Old Java 8 builds may lack the root CA for some relays' TLS certs; update Java 8 or edit relays with `/nostr relay`
 
 ## Ideas / next steps
 
