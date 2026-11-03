@@ -19,14 +19,21 @@ Craft: obsidian ring, glass pane in the middle, ender pearl below it (`recipes/n
 
 Incoming event ids **and signatures are verified**. Replies are hidden from the feed (`NostrClient.HIDE_REPLIES`).
 
-## Commands (client-side only, never sent to the server)
+## Commands
+
+All commands were client-side only, they were never sent to the server
 
 ```
-/nostr login <nsec1...|hex>     /nostr generate     /nostr logout
-/nostr whoami                   /nostr export       (prints your nsec - careful)
+/nostr generate
+/nostr login <nsec1...|hex>
+/nostr logout
+/nostr whoami
+/nostr export
 /nostr post <text>
 /nostr relay list | add <wss://...> | remove <wss://...>
 ```
+
+> Be careful with `/nostr export`, it prints your nsec
 
 ## Build / run
 
