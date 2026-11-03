@@ -64,7 +64,6 @@ client/   TESRNostrScreen (draws text on the block), GuiNostrFeed, GuiNostrLogin
 
 - NIP-02 follow list as a "Following" feed
 - NIP-05 verified names
-- NIP-07 browser-based signing
 - NIP-10 threads & replies
 - NIP-18 reposts
 - NIP-22 comment
