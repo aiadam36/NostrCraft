@@ -1,13 +1,13 @@
-# NostrCraft (Forge 1.12.2)
+# NostrCraft
 
-Browse and post to **Nostr** from inside Minecraft.
+Browse and post to **Nostr** from inside of your Minecraft
 
-* **Nostr Screen block** – a monitor that shows a live, rotating ticker of the global feed on its front face.
-  Right-click it to open the full browser (scroll the feed, write notes).
-* Press **N** anywhere (rebindable) to open the same browser without a block.
-* Works in singleplayer *and* multiplayer. All Nostr traffic and your key live **on your client only**.
+> [!NOTE]
+> We only develop for **Forge 1.12.2**, other version might be an unofficial port so be cautious
 
-Craft: obsidian ring, glass pane in the middle, ender pearl below it (`recipes/nostr_screen.json`).
+- **Nostr Screen block** – a monitor that shows a live, rotating ticker of the global feed on its front face. Right-click it to open the full browser (scroll the feed, write notes)
+- Press **N** anywhere (rebindable) to open the same browser without a block
+- Works in singleplayer *and* multiplayer. All Nostr traffic and your key live **on your client only**
 
 ## Implemented
 
