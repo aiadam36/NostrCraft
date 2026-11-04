@@ -11,13 +11,13 @@ Craft: obsidian ring, glass pane in the middle, ender pearl below it (`recipes/n
 
 ## Implemented
 
-| Spec | What |
-|------|------|
-| NIP-01 | events, canonical id hashing, `REQ` / `EVENT` / `CLOSE`, `OK` / `EOSE` / `NOTICE` / `CLOSED`, kind 0 (names) + kind 1 (notes) |
-| NIP-19 | `npub` / `nsec` bech32 encode + decode |
-| BIP-340 | Schnorr sign + verify (pure `BigInteger`, tested against the official vector) |
+| Spec    | What                                                                                                                          |
+|---------|-------------------------------------------------------------------------------------------------------------------------------|
+| NIP-01  | events, canonical id hashing, `REQ` / `EVENT` / `CLOSE`, `OK` / `EOSE` / `NOTICE` / `CLOSED`, kind 0 (names) + kind 1 (notes) |
+| NIP-19  | `npub` / `nsec` bech32 encode + decode                                                                                        |
+| BIP-340 | Schnorr sign + verify (pure `BigInteger`, tested against the official vector)                                                 |
 
-Incoming event ids **and signatures are verified**. Replies are hidden from the feed (`NostrClient.HIDE_REPLIES`).
+Incoming event ids **and signatures are verified**. Replies are hidden from the feed (`NostrClient.HIDE_REPLIES`)
 
 ## Commands
 
