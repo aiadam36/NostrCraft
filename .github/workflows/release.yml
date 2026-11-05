@@ -11,6 +11,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -19,30 +20,74 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '8'
+          java-version: "8"
 
       - name: Prepare Forge MDK
+        env:
+          FORGE_VERSION: 1.12.2-14.23.5.2847
         run: |
+          set -euo pipefail
+
+          if ! grep -Fq "version = \"$FORGE_VERSION\"" build.gradle; then
+            echo "::error::build.gradle must target Forge $FORGE_VERSION"
+            exit 1
+          fi
+
+          MDK_DIR="$RUNNER_TEMP/forge-mdk"
+          MDK_ZIP="$RUNNER_TEMP/forge-mdk.zip"
+
           curl --fail --location --silent --show-error \
-            https://maven.minecraftforge.net/net/minecraftforge/forge/1.12.2-14.23.5.2860/forge-1.12.2-14.23.5.2860-mdk.zip \
-            --output "$RUNNER_TEMP/forge-mdk.zip"
-          mkdir "$RUNNER_TEMP/forge-mdk"
-          unzip -q "$RUNNER_TEMP/forge-mdk.zip" -d "$RUNNER_TEMP/forge-mdk"
-          cp -R src "$RUNNER_TEMP/forge-mdk/src"
-          cp build.gradle "$RUNNER_TEMP/forge-mdk/build.gradle"
-          cp gradle.properties "$RUNNER_TEMP/forge-mdk/gradle.properties"
+            "https://maven.minecraftforge.net/net/minecraftforge/forge/${FORGE_VERSION}/forge-${FORGE_VERSION}-mdk.zip" \
+            --output "$MDK_ZIP"
+
+          mkdir -p "$MDK_DIR"
+          unzip -q "$MDK_ZIP" -d "$MDK_DIR"
+
+          rm -rf "$MDK_DIR/src"
+          cp -R src "$MDK_DIR/src"
+
+          cp build.gradle gradle.properties "$MDK_DIR/"
+
+          sed -i \
+            's#gradle-[0-9.]*-bin.zip#gradle-4.9-bin.zip#' \
+            "$MDK_DIR/gradle/wrapper/gradle-wrapper.properties"
+
+          chmod +x "$MDK_DIR/gradlew"
+
+          echo "Forge version: $FORGE_VERSION"
+          grep '^distributionUrl=' \
+            "$MDK_DIR/gradle/wrapper/gradle-wrapper.properties"
 
       - name: Build mod
         working-directory: ${{ runner.temp }}/forge-mdk
-        run: ./gradlew --no-daemon setupDecompWorkspace build
+        run: |
+          ./gradlew --no-daemon setupDecompWorkspace build
 
       - name: Prepare release asset
         env:
           TAG_NAME: ${{ github.ref_name }}
         run: |
+          set -euo pipefail
+
           mkdir -p dist
-          cp "$RUNNER_TEMP/forge-mdk/build/libs/NostrCraft-1.12.2-0.1.0.jar" \
-            "dist/NostrCraft-1.12.2-${TAG_NAME}.jar"
+
+          JAR_PATH="$(find "$RUNNER_TEMP/forge-mdk/build/libs" \
+            -maxdepth 1 \
+            -type f \
+            -name 'NostrCraft-1.12.2-*.jar' \
+            ! -name '*-sources.jar' \
+            ! -name '*-javadoc.jar' \
+            -print -quit)"
+
+          if [ -z "$JAR_PATH" ]; then
+            echo "::error::NostrCraft JAR was not generated."
+            ls -lah "$RUNNER_TEMP/forge-mdk/build/libs"
+            exit 1
+          fi
+
+          cp "$JAR_PATH" "dist/NostrCraft-1.12.2-${TAG_NAME}.jar"
+
+          ls -lah dist/
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
