@@ -35,6 +35,14 @@ All commands were client-side only, they were never sent to the server
 
 > Be careful with `/nostr export`, it prints your nsec
 
+## Crafting recipe
+
+You need *7x Obsidian*, *1x Glass Pane* and *1x Ender Pearl*
+
+![Crafting recipe](https://static.adamiskandar.com/images/nostrcraft/recipe-1cde8475.png)
+
+> Refer to `src/main/resources/assets/nostrcraft/recipes/nostr_screen.json`
+
 ## Build / run
 
 Needs **JDK 8** (ForgeGradle 2.3 does not work on newer JDKs) and **Gradle 4.9**.
