@@ -45,19 +45,25 @@ You need *7x Obsidian*, *1x Glass Pane* and *1x Ender Pearl*
 
 ## Build / run
 
-Needs **JDK 8** (ForgeGradle 2.3 does not work on newer JDKs) and **Gradle 4.9**.
+> [!NOTE]
+> ForgeGradle 2.3 does not work on newer JDKs
 
-Easiest: download the official 1.12.2 MDK from files.minecraftforge.net, then copy this project's
-`src/` and `build.gradle` over the MDK's, and run:
+You'll need **JDK 8**. This repository already contains the mod sources and ForgeGradle build file
+
+1. Start from the official Forge **1.12.2-14.23.5.2860 MDK** to get the Gradle wrapper and supporting files
+
+2. Extract the MDK, then copy this project's `src/` and `build.gradle` into its root (replacing the MDK's files)
+
+3. From there, run:
 
 ```
-./gradlew setupDecompWorkspace     # first time only
-./gradlew runClient
-./gradlew build                    # jar ends up in build/libs/
+./gradlew setupDecompWorkspace
+./gradlew build
 ```
 
-(Or in this folder: `gradle wrapper --gradle-version 4.9` and use `./gradlew`.)
-No extra libraries: Gson and Netty (WebSocket + TLS) already ship with Minecraft 1.12.2.
+The mod would end up in `build/libs/`
+
+> You need to run `./gradlew setupDecompWorkspace` only for the first time
 
 ## Layout
 
