@@ -46,7 +46,7 @@ You need *7x Obsidian*, *1x Glass Pane* and *1x Ender Pearl*
 ## Build / run
 
 > [!NOTE]
-> ForgeGradle 2.3 does not work on newer JDKs
+> **ForgeGradle 2.3** does not work on newer JDKs
 
 You'll need **JDK 8**. This repository already contains the mod sources and ForgeGradle build file
 
