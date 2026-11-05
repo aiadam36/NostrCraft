@@ -95,3 +95,7 @@ src/main/java/com/nostrcraft/nostr/ -> Schnorr, Bech32, NostrEvent, RelayConnect
 - NIP-89 client tag
 - per-block filters (hashtag / author / relay) stored in `TileNostrScreen`
 - profile pictures via a texture cache
+
+## Contributing
+
+Feel free to fork and submit PR
