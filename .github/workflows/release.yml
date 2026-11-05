@@ -1,0 +1,50 @@
+name: Build and release
+
+on:
+  push:
+    tags:
+      - "*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 8
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '8'
+
+      - name: Prepare Forge MDK
+        run: |
+          curl --fail --location --silent --show-error \
+            https://files.minecraftforge.net/net/minecraftforge/forge/1.12.2-14.23.5.2860/forge-1.12.2-14.23.5.2860-mdk.zip \
+            --output "$RUNNER_TEMP/forge-mdk.zip"
+          mkdir "$RUNNER_TEMP/forge-mdk"
+          unzip -q "$RUNNER_TEMP/forge-mdk.zip" -d "$RUNNER_TEMP/forge-mdk"
+          cp -R src "$RUNNER_TEMP/forge-mdk/src"
+          cp build.gradle "$RUNNER_TEMP/forge-mdk/build.gradle"
+          cp gradle.properties "$RUNNER_TEMP/forge-mdk/gradle.properties"
+
+      - name: Build mod
+        working-directory: ${{ runner.temp }}/forge-mdk
+        run: ./gradlew --no-daemon setupDecompWorkspace build
+
+      - name: Prepare release asset
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          mkdir -p dist
+          cp "$RUNNER_TEMP/forge-mdk/build/libs/NostrCraft-1.12.2-0.1.0.jar" \
+            "dist/NostrCraft-1.12.2-${TAG_NAME}.jar"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.jar
