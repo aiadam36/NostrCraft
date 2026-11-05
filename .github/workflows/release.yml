@@ -24,7 +24,7 @@ jobs:
       - name: Prepare Forge MDK
         run: |
           curl --fail --location --silent --show-error \
-            https://files.minecraftforge.net/net/minecraftforge/forge/1.12.2-14.23.5.2860/forge-1.12.2-14.23.5.2860-mdk.zip \
+            https://maven.minecraftforge.net/net/minecraftforge/forge/1.12.2-14.23.5.2860/forge-1.12.2-14.23.5.2860-mdk.zip \
             --output "$RUNNER_TEMP/forge-mdk.zip"
           mkdir "$RUNNER_TEMP/forge-mdk"
           unzip -q "$RUNNER_TEMP/forge-mdk.zip" -d "$RUNNER_TEMP/forge-mdk"
