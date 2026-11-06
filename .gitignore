@@ -1,5 +1,27 @@
-run/
+# java
+*.class
+*.log
+hs_err_pid*
+
+# eclipse
+bin
+*.launch
+.settings
+.metadata
+.classpath
+.project
+
+# idea
+out
+*.ipr
+*.iws
+*.iml
+.idea/
+
+# gradle
 build/
 .gradle/
-.idea/
-*.iml
+
+# other
+eclipse
+run/
