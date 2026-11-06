@@ -46,24 +46,21 @@ You need *7x Obsidian*, *1x Glass Pane* and *1x Ender Pearl*
 ## Build / run
 
 > [!NOTE]
-> **ForgeGradle 2.3** does not work on newer JDKs
+> ForgeGradle 2.3 requires **JDK 8**. The project targets Forge **1.12.2-14.23.5.2847**
 
-You'll need **JDK 8**. This repository already contains the mod sources and ForgeGradle build file
+This repository does not include the Gradle wrapper or the other files from the Forge MDK. To build locally:
 
-1. Start from the official Forge **1.12.2-14.23.5.2860 MDK** to get the Gradle wrapper and supporting files
+1. Download and extract the Forge **1.12.2-14.23.5.2847 MDK**
 
-2. Extract the MDK, then copy this project's `src/` and `build.gradle` into its root (replacing the MDK's files)
+2. Copy this repository's `src/`, `build.gradle`, and `gradle.properties` into the extracted MDK directory
 
-3. From there, run:
+3. In that directory, use the MDK's Gradle wrapper with Gradle **4.9** to build the mod:
 
+```sh
+./gradlew --no-daemon setupDecompWorkspace build
 ```
-./gradlew setupDecompWorkspace
-./gradlew build
-```
 
-The mod would end up in `build/libs/`
-
-> You need to run `./gradlew setupDecompWorkspace` only for the first time
+The built mod is in `build/libs/`. To launch the Minecraft client for development, run `./gradlew runClient` from the same directory after setup
 
 ## Layout
 
