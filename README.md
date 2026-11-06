@@ -48,13 +48,11 @@ You need *7x Obsidian*, *1x Glass Pane* and *1x Ender Pearl*
 > [!NOTE]
 > ForgeGradle 2.3 requires **JDK 8**. The project targets Forge **1.12.2-14.23.5.2847**
 
-This repository does not include the Gradle wrapper or the other files from the Forge MDK. To build locally:
+This repository already includes the Gradle wrapper (Gradle **4.9**), so you don't need to download the Forge MDK. To build locally:
 
-1. Download and extract the Forge **1.12.2-14.23.5.2847 MDK**
+1. Clone this repository and make sure `java -version` reports JDK 8
 
-2. Copy this repository's `src/`, `build.gradle`, and `gradle.properties` into the extracted MDK directory
-
-3. In that directory, use the MDK's Gradle wrapper with Gradle **4.9** to build the mod:
+2. In the repository root, run the build:
 
 ```sh
 ./gradlew --no-daemon setupDecompWorkspace build
