@@ -9,7 +9,7 @@ buildscript {
 }
 apply plugin: 'net.minecraftforge.gradle.forge'
 
-version = "0.1.0"
+version = project.mod_version
 group = "com.nostrcraft"
 archivesBaseName = "NostrCraft-1.12.2"
 
@@ -21,6 +21,18 @@ minecraft {
     version = "1.12.2-14.23.5.2847"
     runDir = "run"
     mappings = "stable_39"
+    replace "@VERSION@", project.version
+}
+
+processResources {
+    inputs.property "version", project.version
+    from(sourceSets.main.resources.srcDirs) {
+        include 'mcmod.info'
+        expand 'version': project.version
+    }
+    from(sourceSets.main.resources.srcDirs) {
+        exclude 'mcmod.info'
+    }
 }
 
 // No extra dependencies: Gson and Netty (WebSocket + TLS) already ship with Minecraft 1.12.2.

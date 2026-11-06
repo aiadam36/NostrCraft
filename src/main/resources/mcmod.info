@@ -2,7 +2,7 @@
   "modid": "nostrcraft",
   "name": "NostrCraft",
   "description": "Browse and post to Nostr from inside Minecraft.",
-  "version": "0.1.0",
+  "version": "${version}",
   "mcversion": "1.12.2",
   "authorList": ["aiadam36"],
   "credits": "Nostr"

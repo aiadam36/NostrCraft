@@ -9,7 +9,7 @@ import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
 public class NostrCraft {
     public static final String MODID = "nostrcraft";
     public static final String NAME = "NostrCraft";
-    public static final String VERSION = "0.1.0";
+    public static final String VERSION = "@VERSION@";
 
     @SidedProxy(clientSide = "com.nostrcraft.ClientProxy", serverSide = "com.nostrcraft.CommonProxy")
     public static CommonProxy proxy;
