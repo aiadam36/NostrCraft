@@ -8,6 +8,7 @@ import net.minecraft.block.BlockHorizontal;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.renderer.GlStateManager;
+import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.tileentity.TileEntitySpecialRenderer;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.world.World;
@@ -56,10 +57,16 @@ public class TESRNostrScreen extends TileEntitySpecialRenderer<TileNostrScreen> 
         GlStateManager.translate(0f, 0f, 0.5f + 0.003f);
         GlStateManager.translate(-0.5f + PAD, 0.5f - PAD, 0f);
         GlStateManager.scale(S, -S, S);
+        // TESRs inherit the world's lightmap. Disabling GL lighting alone does not
+        // prevent the lightmap from dimming the glyph colors (notably with OptiFine).
+        float oldLightmapX = OpenGlHelper.lastBrightnessX;
+        float oldLightmapY = OpenGlHelper.lastBrightnessY;
+        OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240f, 240f);
         GlStateManager.disableLighting();
         GlStateManager.color(1f, 1f, 1f, 1f);
         for (int i = 0; i < lines.size(); i++) fr.drawString(lines.get(i), 0, i * 9, 0xFFFFFF);
         GlStateManager.enableLighting();
+        OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, oldLightmapX, oldLightmapY);
         GlStateManager.popMatrix();
     }
 

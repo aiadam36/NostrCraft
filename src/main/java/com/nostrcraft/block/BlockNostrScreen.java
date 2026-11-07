@@ -29,6 +29,8 @@ public class BlockNostrScreen extends BlockHorizontal {
         setCreativeTab(CreativeTabs.REDSTONE);
         setHardness(3.0F);
         setResistance(10.0F);
+        // A screen should provide useful ambient light around its display.
+        setLightLevel(0.8F);
         setDefaultState(blockState.getBaseState().withProperty(FACING, EnumFacing.NORTH));
     }
 
