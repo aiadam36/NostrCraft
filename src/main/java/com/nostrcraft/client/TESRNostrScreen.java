@@ -17,11 +17,11 @@ import java.util.List;
 
 /** Draws a rotating ticker of the latest notes on the front face of the Nostr Screen block. */
 public class TESRNostrScreen extends TileEntitySpecialRenderer<TileNostrScreen> {
-    private static final int TEXT_W = 108;      // usable pixels across the face (128 - margins)
-    private static final int MAX_LINES = 12;    // 12 * 9px = 108px tall
+    private static final int TEXT_W = 92;       // fit inside the inset display area
+    private static final int MAX_LINES = 10;    // keep glyphs within the inset display height
     private static final int NOTE_LINES = 4;
     private static final float S = 1f / 128f;   // 1 block = 128 font pixels
-    private static final float PAD = 10 * S;
+    private static final float PAD = 18 * S;
 
     private final List<String> lines = new ArrayList<String>();
     private int cachedVersion = -1;
