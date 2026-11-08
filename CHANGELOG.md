@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1
+- Fixed dark text issue on Nostr Screen block
+- Fixed Nostr Screen text clipping within the inset area
+- Nostr Screen block now emits light
+
 ## 0.1.0
 - Initial release
 - Added NIP-01 event handling and relay feed/profile subscriptions
