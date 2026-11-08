@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+- Reduced Nostr Screen text rendering distance
+- Added occlusion-based rendering to hide text when obstructed by solid blocks
+
 ## 0.1.1
 - Fixed dark text issue on Nostr Screen block
 - Fixed Nostr Screen text clipping within the inset area
