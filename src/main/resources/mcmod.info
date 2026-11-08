@@ -1,9 +1,10 @@
 [{
   "modid": "nostrcraft",
   "name": "NostrCraft",
-  "description": "Browse and post to Nostr from inside Minecraft.",
+  "description": "Browse and post to Nostr from inside of your Minecraft.",
   "version": "${version}",
   "mcversion": "1.12.2",
+  "url": "https://github.com/aiadam36/NostrCraft",
   "authorList": ["aiadam36"],
-  "credits": "Nostr"
+  "credits": "Thanks to everyone involved and Nostr protocol itself"
 }]
