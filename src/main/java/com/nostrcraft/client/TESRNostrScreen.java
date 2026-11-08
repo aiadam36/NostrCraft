@@ -37,6 +37,11 @@ public class TESRNostrScreen extends TileEntitySpecialRenderer<TileNostrScreen> 
         if (!(state.getBlock() instanceof BlockNostrScreen)) return;
         if (x * x + y * y + z * z > 4 * 4) return; // render text only when the player is within 4 blocks
 
+        EnumFacing facing = state.getValue(BlockHorizontal.FACING);
+        net.minecraft.util.math.BlockPos frontPos = te.getPos().offset(facing);
+        IBlockState frontState = world.getBlockState(frontPos);
+        if (frontState.isOpaqueCube() && frontState.isFullBlock()) return; // skip text hidden behind a solid full block
+
         NostrClient nc = NostrClient.get();
         nc.ensureStarted();
 
@@ -48,7 +53,6 @@ public class TESRNostrScreen extends TileEntitySpecialRenderer<TileNostrScreen> 
             cachedSlot = slot;
         }
 
-        EnumFacing facing = state.getValue(BlockHorizontal.FACING);
         FontRenderer fr = getFontRenderer();
 
         GlStateManager.pushMatrix();
