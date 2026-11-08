@@ -35,7 +35,7 @@ public class TESRNostrScreen extends TileEntitySpecialRenderer<TileNostrScreen> 
         if (world == null) return;
         IBlockState state = world.getBlockState(te.getPos());
         if (!(state.getBlock() instanceof BlockNostrScreen)) return;
-        if (x * x + y * y + z * z > 20 * 20) return; // don't bother with far-away screens
+        if (x * x + y * y + z * z > 4 * 4) return; // render text only when the player is within 4 blocks
 
         NostrClient nc = NostrClient.get();
         nc.ensureStarted();
