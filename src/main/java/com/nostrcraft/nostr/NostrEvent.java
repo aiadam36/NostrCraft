@@ -13,6 +13,7 @@ import java.util.List;
 public class NostrEvent {
     public static final int KIND_METADATA = 0;
     public static final int KIND_TEXT_NOTE = 1;
+    public static final int KIND_CONTACT_LIST = 3;
 
     public String id = "";
     public String pubkey = "";

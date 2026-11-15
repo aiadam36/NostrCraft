@@ -13,13 +13,15 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-/** The Nostr browser: scrollable global feed + a box to publish a note. */
+/** The Nostr browser: scrollable global/following feed + a box to publish a note. */
 public class GuiNostrFeed extends GuiScreen {
-    private static final int BTN_POST = 0, BTN_ACCOUNT = 1;
+    private static final int BTN_POST = 0, BTN_ACCOUNT = 1, BTN_FEED = 2;
 
     private final NostrClient nc = NostrClient.get();
     private GuiTextField compose;
     private GuiButton accountButton;
+    private GuiButton feedButton;
+    private boolean followingFeed;
     private final List<String> lines = new ArrayList<String>();
     private int scroll;
     private int builtVersion = -1, builtWidth = -1;
@@ -36,6 +38,7 @@ public class GuiNostrFeed extends GuiScreen {
         feedBottom = height - 52;
         buttonList.clear();
         accountButton = addButton(new GuiButton(BTN_ACCOUNT, px + pw - 90, 8, 90, 20, accountLabel()));
+        feedButton = addButton(new GuiButton(BTN_FEED, px + 86, 8, 90, 20, feedLabel()));
         addButton(new GuiButton(BTN_POST, px + pw - 60, height - 43, 60, 20, "Post"));
         String old = compose == null ? "" : compose.getText();
         compose = new GuiTextField(10, fontRenderer, px, height - 43, pw - 66, 20);
@@ -64,6 +67,7 @@ public class GuiNostrFeed extends GuiScreen {
     protected void actionPerformed(GuiButton b) throws IOException {
         if (b.id == BTN_POST) post();
         else if (b.id == BTN_ACCOUNT) mc.displayGuiScreen(new GuiNostrLogin(this));
+        else if (b.id == BTN_FEED) { followingFeed = !followingFeed; scroll = 0; builtVersion = -1; }
     }
 
     private void post() {
@@ -104,6 +108,11 @@ public class GuiNostrFeed extends GuiScreen {
     private void rebuildLines() {
         lines.clear();
         List<NostrEvent> feed = nc.getFeed();
+        if (followingFeed) {
+            List<NostrEvent> filtered = new ArrayList<NostrEvent>();
+            for (NostrEvent e : feed) if (nc.follows(e.pubkey)) filtered.add(e);
+            feed = filtered;
+        }
         if (feed.isEmpty()) lines.add("\u00a77Waiting for notes from relays...");
         for (NostrEvent e : feed) {
             lines.add("\u00a7b" + nc.displayName(e.pubkey) + " \u00a78- \u00a77" + Fmt.ago(e.createdAt));
@@ -127,6 +136,7 @@ public class GuiNostrFeed extends GuiScreen {
         if (builtVersion != nc.getFeedVersion() || builtWidth != width || System.currentTimeMillis() - builtAt > 15000)
             rebuildLines();
         accountButton.displayString = accountLabel();
+        feedButton.displayString = feedLabel();
 
         drawString(fontRenderer, "\u00a7d\u00a7lNostrCraft", px, 9, 0xFFFFFF);
         String who = nc.isLoggedIn() ? "\u00a77" + shorten(nc.getNpub()) : "\u00a78not logged in";
@@ -154,5 +164,9 @@ public class GuiNostrFeed extends GuiScreen {
 
     private static String shorten(String s) {
         return s.length() > 20 ? s.substring(0, 12) + "..." + s.substring(s.length() - 6) : s;
+    }
+
+    private String feedLabel() {
+        return followingFeed ? "Following (" + nc.getFollowingCount() + ")" : "Global";
     }
 }

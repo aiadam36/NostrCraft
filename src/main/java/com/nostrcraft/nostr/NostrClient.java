@@ -42,6 +42,7 @@ public class NostrClient implements RelayConnection.Listener {
     private final JsonParser parser = new JsonParser();
     private File configFile;
     private volatile NostrKeys keys;
+    private volatile long followListCreatedAt;
 
     private final List<String> relayUrls = new CopyOnWriteArrayList<String>();
     private final Map<String, RelayConnection> relays = new ConcurrentHashMap<String, RelayConnection>();
@@ -50,6 +51,7 @@ public class NostrClient implements RelayConnection.Listener {
     private final Set<String> seen = new HashSet<String>();            // guarded by 'feed'
     private final Map<String, Profile> profiles = new ConcurrentHashMap<String, Profile>();
     private final Map<String, String> shortNames = new ConcurrentHashMap<String, String>();
+    private final Set<String> following = Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
     private final Set<String> metaKnown = Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
     private final Queue<String> metaQueue = new ConcurrentLinkedQueue<String>();
     private final AtomicInteger metaCounter = new AtomicInteger();
@@ -107,20 +109,29 @@ public class NostrClient implements RelayConnection.Listener {
     public void login(String input) {
         NostrKeys k = NostrKeys.parse(input); // throws IllegalArgumentException on bad input
         keys = k;
+        following.clear();
+        followListCreatedAt = 0;
         queueMeta(k.getPubHex());
         save();
+        requestFollowList();
         status = "Logged in as " + shortNpub(k.getPubHex());
     }
 
     public void generateKey() {
         keys = NostrKeys.generate();
+        following.clear();
+        followListCreatedAt = 0;
         queueMeta(keys.getPubHex());
         save();
+        requestFollowList();
         status = "New key generated: " + shortNpub(keys.getPubHex());
     }
 
     public void logout() {
         keys = null;
+        following.clear();
+        followListCreatedAt = 0;
+        feedVersion++;
         save();
         status = "Logged out";
     }
@@ -182,6 +193,8 @@ public class NostrClient implements RelayConnection.Listener {
     public int getFeedVersion() { return feedVersion; }
     public String getStatus() { return status; }
     public void setStatus(String s) { status = s; }
+    public boolean follows(String pubkey) { return following.contains(pubkey); }
+    public int getFollowingCount() { return following.size(); }
 
     /** Newest first. Returns a snapshot. */
     public List<NostrEvent> getFeed() {
@@ -216,6 +229,16 @@ public class NostrClient implements RelayConnection.Listener {
         status = "Connected: " + host(c.url);
         // NIP-01 REQ: latest 80 text notes from this relay
         c.send("[\"REQ\",\"" + FEED_SUB + "\",{\"kinds\":[1],\"limit\":80}]");
+        requestFollowList(c);
+    }
+
+    private void requestFollowList() {
+        for (RelayConnection rc : openRelays()) requestFollowList(rc);
+    }
+
+    private void requestFollowList(RelayConnection c) {
+        NostrKeys account = keys;
+        if (account != null) c.send("[\"REQ\",\"nc-follow-list\",{\"kinds\":[3],\"authors\":[\"" + account.getPubHex() + "\"],\"limit\":1}]");
     }
 
     @Override
@@ -236,7 +259,7 @@ public class NostrClient implements RelayConnection.Listener {
                         : "\u00a7c" + host(c.url) + " rejected: " + why;
         } else if ("EOSE".equals(type)) {
             String sub = a.get(1).getAsString();
-            if (sub.startsWith("nc-meta")) c.send("[\"CLOSE\",\"" + sub + "\"]");
+            if (sub.startsWith("nc-meta") || "nc-follow-list".equals(sub)) c.send("[\"CLOSE\",\"" + sub + "\"]");
         } else if ("NOTICE".equals(type)) {
             status = "\u00a7e" + host(c.url) + ": " + a.get(1).getAsString();
         } else if ("CLOSED".equals(type)) {
@@ -246,11 +269,17 @@ public class NostrClient implements RelayConnection.Listener {
 
     private void handleEvent(JsonElement el) {
         NostrEvent e = NostrEvent.fromJson(el);
-        if (e == null || (e.kind != NostrEvent.KIND_TEXT_NOTE && e.kind != NostrEvent.KIND_METADATA)) return;
+        if (e == null || (e.kind != NostrEvent.KIND_TEXT_NOTE && e.kind != NostrEvent.KIND_METADATA && e.kind != NostrEvent.KIND_CONTACT_LIST)) return;
         if (!e.verify(VERIFY_SIGNATURES)) return;
 
         if (e.kind == NostrEvent.KIND_METADATA) {
             handleProfile(e);
+            return;
+        }
+        if (e.kind == NostrEvent.KIND_CONTACT_LIST) {
+            NostrKeys account = keys;
+            if (account == null || !account.getPubHex().equals(e.pubkey)) return;
+            handleFollowList(e);
             return;
         }
         if (HIDE_REPLIES && e.hasTag("e")) return;
@@ -258,6 +287,27 @@ public class NostrClient implements RelayConnection.Listener {
         if (e.content.trim().isEmpty()) return;
         addToFeed(e);
         queueMeta(e.pubkey);
+    }
+
+    private void handleFollowList(NostrEvent e) {
+        Set<String> next = new HashSet<String>();
+        synchronized (following) {
+            if (e.createdAt < followListCreatedAt) return;
+            for (List<String> tag : e.tags) {
+                if (tag.size() >= 2 && "p".equals(tag.get(0)) && Hex.isHex(tag.get(1), 64)) next.add(tag.get(1).toLowerCase());
+            }
+            following.clear();
+            following.addAll(next);
+            followListCreatedAt = e.createdAt;
+        }
+        if (!next.isEmpty()) {
+            JsonArray authors = new JsonArray();
+            for (String pubkey : next) authors.add(new JsonPrimitive(pubkey));
+            String req = "[\"REQ\",\"nc-follow-feed\",{\"kinds\":[1],\"authors\":" + authors + ",\"limit\":200}]";
+            for (RelayConnection rc : openRelays()) rc.send(req);
+        }
+        feedVersion++;
+        status = "Following " + next.size() + " profile(s)";
     }
 
     private void handleProfile(NostrEvent e) {
