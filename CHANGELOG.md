@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0
+- Added a Following feed based on the account's NIP-02 contact list
+- Added note search, using NIP-50 on supporting relays and local matching on other relays
+- Expanded NIP-01 support with reusable filters, custom subscriptions, and publishing signed events
+- Improved validation and handling of Nostr events and relay messages
+
 ## 0.1.2
 - Reduced Nostr Screen text rendering distance
 - Added occlusion-based rendering to hide text when obstructed by solid blocks
