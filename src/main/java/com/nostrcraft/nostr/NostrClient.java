@@ -23,6 +23,11 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Runs entirely on the CLIENT: your secret key never touches the server.
  */
 public class NostrClient implements RelayConnection.Listener {
+    public interface SubscriptionListener {
+        void onEvent(NostrEvent event, String relayUrl);
+        default void onEose(String relayUrl) { }
+        default void onClosed(String relayUrl, String message) { }
+    }
     private static final NostrClient INSTANCE = new NostrClient();
     private static final ExecutorService NIP11_EXECUTOR = Executors.newFixedThreadPool(2, new ThreadFactory() {
         private final AtomicInteger number = new AtomicInteger();
@@ -60,6 +65,8 @@ public class NostrClient implements RelayConnection.Listener {
     private final List<String> relayUrls = new CopyOnWriteArrayList<String>();
     private final Map<String, RelayConnection> relays = new ConcurrentHashMap<String, RelayConnection>();
     private final Map<String, Boolean> searchSupport = new ConcurrentHashMap<String, Boolean>();
+    private final Map<String, String> customSubscriptions = new ConcurrentHashMap<String, String>();
+    private final Map<String, SubscriptionListener> subscriptionListeners = new ConcurrentHashMap<String, SubscriptionListener>();
 
     private final List<NostrEvent> feed = new ArrayList<NostrEvent>(); // guarded by 'feed'
     private final Set<String> seen = new HashSet<String>();            // guarded by 'feed'
@@ -168,13 +175,59 @@ public class NostrClient implements RelayConnection.Listener {
         if (open.isEmpty()) throw new IllegalStateException("No relay connected yet");
 
         NostrEvent ev = NostrEvent.create(k, NostrEvent.KIND_TEXT_NOTE, new ArrayList<List<String>>(), content);
+        publishEvent(ev);
+    }
+
+    /** Publishes a previously signed, valid event to every open relay. */
+    public void publishEvent(NostrEvent ev) {
+        if (ev == null || !ev.verify(true)) throw new IllegalArgumentException("Event id or signature is invalid");
+        List<RelayConnection> open = openRelays();
+        if (open.isEmpty()) throw new IllegalStateException("No relay connected yet");
         JsonArray msg = new JsonArray();
         msg.add(new JsonPrimitive("EVENT"));
         msg.add(ev.toJson());
         String text = msg.toString();
         for (RelayConnection rc : open) rc.send(text);
-        addToFeed(ev); // show immediately; the relay echo is de-duplicated by id
+        if (ev.kind == NostrEvent.KIND_TEXT_NOTE) addToFeed(ev); // relay echoes are de-duplicated by id
         status = "Published to " + open.size() + " relay(s)";
+    }
+
+    /** Opens or replaces a NIP-01 subscription on every currently connected relay. */
+    public int subscribe(String subscriptionId, NostrFilter... filters) {
+        return subscribe(subscriptionId, null, filters);
+    }
+
+    public int subscribe(String subscriptionId, SubscriptionListener listener, NostrFilter... filters) {
+        if (subscriptionId == null || subscriptionId.isEmpty() || subscriptionId.length() > 64)
+            throw new IllegalArgumentException("Subscription id must contain 1 to 64 characters");
+        if (filters == null || filters.length == 0) throw new IllegalArgumentException("At least one filter is required");
+        JsonArray req = new JsonArray();
+        req.add(new JsonPrimitive("REQ"));
+        req.add(new JsonPrimitive(subscriptionId));
+        for (NostrFilter filter : filters) {
+            if (filter == null) throw new IllegalArgumentException("Filter cannot be null");
+            req.add(filter.toJson());
+        }
+        customSubscriptions.put(subscriptionId, req.toString());
+        if (listener == null) subscriptionListeners.remove(subscriptionId);
+        else subscriptionListeners.put(subscriptionId, listener);
+        String message = req.toString();
+        List<RelayConnection> open = openRelays();
+        for (RelayConnection relay : open) relay.send(message);
+        return open.size();
+    }
+
+    /** Closes a NIP-01 subscription on every currently connected relay. */
+    public void closeSubscription(String subscriptionId) {
+        if (subscriptionId == null || subscriptionId.isEmpty() || subscriptionId.length() > 64)
+            throw new IllegalArgumentException("Subscription id must contain 1 to 64 characters");
+        JsonArray close = new JsonArray();
+        close.add(new JsonPrimitive("CLOSE"));
+        close.add(new JsonPrimitive(subscriptionId));
+        String message = close.toString();
+        for (RelayConnection relay : openRelays()) relay.send(message);
+        customSubscriptions.remove(subscriptionId);
+        subscriptionListeners.remove(subscriptionId);
     }
 
     // ------------------------------------------------------------ relays
@@ -349,6 +402,7 @@ public class NostrClient implements RelayConnection.Listener {
         status = "Connected: " + host(c.url);
         // NIP-01 REQ: latest 80 text notes from this relay
         c.send("[\"REQ\",\"" + FEED_SUB + "\",{\"kinds\":[1],\"limit\":80}]");
+        for (String req : customSubscriptions.values()) c.send(req);
         if (isSearching()) discoverSearchSupport(c, searchSubscription);
         requestFollowList(c);
     }
@@ -369,7 +423,14 @@ public class NostrClient implements RelayConnection.Listener {
 
     @Override
     public void onMessage(RelayConnection c, String text) {
-        JsonArray a = parser.parse(text).getAsJsonArray();
+        JsonArray a;
+        try {
+            JsonElement parsed = parser.parse(text);
+            if (!parsed.isJsonArray()) return;
+            a = parsed.getAsJsonArray();
+            if (a.size() == 0 || !a.get(0).isJsonPrimitive()) return;
+        } catch (Exception ignored) { return; }
+        try {
         String type = a.get(0).getAsString();
         if ("EVENT".equals(type)) {
             if (a.size() >= 3) handleEvent(a.get(2), a.get(1).getAsString(), c);
@@ -380,12 +441,16 @@ public class NostrClient implements RelayConnection.Listener {
                         : "\u00a7c" + host(c.url) + " rejected: " + why;
         } else if ("EOSE".equals(type)) {
             String sub = a.get(1).getAsString();
-            if (sub.startsWith("nc-meta") || "nc-follow-list".equals(sub) || sub.equals(searchSubscription))
+            SubscriptionListener listener = subscriptionListeners.get(sub);
+            if (listener != null) try { listener.onEose(c.url); } catch (Throwable ignored) { }
+            if (sub.startsWith("nc-meta") || "nc-follow-list".equals(sub))
                 c.send("[\"CLOSE\",\"" + sub + "\"]");
         } else if ("NOTICE".equals(type)) {
             status = "\u00a7e" + host(c.url) + ": " + a.get(1).getAsString();
         } else if ("CLOSED".equals(type)) {
             String sub = a.size() > 1 ? a.get(1).getAsString() : "";
+            SubscriptionListener listener = subscriptionListeners.get(sub);
+            if (listener != null) try { listener.onClosed(c.url, a.size() > 2 ? a.get(2).getAsString() : ""); } catch (Throwable ignored) { }
             Boolean supported = searchSupport.get(c.url);
             if (sub.equals(searchSubscription) && Boolean.TRUE.equals(supported)) {
                 searchSupport.put(c.url, Boolean.FALSE);
@@ -397,13 +462,17 @@ public class NostrClient implements RelayConnection.Listener {
                         : "\u00a7e" + host(c.url) + " closed sub: " + (a.size() > 2 ? a.get(2).getAsString() : "");
             }
         }
+        } catch (Exception ignored) { /* Ignore malformed relay frames. */ }
     }
 
     private void handleEvent(JsonElement el, String subscription, RelayConnection relay) {
         if (subscription.startsWith("nc-search-") && !subscription.equals(searchSubscription)) return;
         NostrEvent e = NostrEvent.fromJson(el);
-        if (e == null || (e.kind != NostrEvent.KIND_TEXT_NOTE && e.kind != NostrEvent.KIND_METADATA && e.kind != NostrEvent.KIND_CONTACT_LIST)) return;
+        if (e == null) return;
         if (!e.verify(VERIFY_SIGNATURES)) return;
+        SubscriptionListener listener = subscriptionListeners.get(subscription);
+        if (listener != null) try { listener.onEvent(e, relay.url); } catch (Throwable ignored) { }
+        if (e.kind != NostrEvent.KIND_TEXT_NOTE && e.kind != NostrEvent.KIND_METADATA && e.kind != NostrEvent.KIND_CONTACT_LIST) return;
 
         if (e.kind == NostrEvent.KIND_METADATA) {
             handleProfile(e);
