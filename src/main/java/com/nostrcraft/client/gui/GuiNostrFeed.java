@@ -15,12 +15,14 @@ import java.util.List;
 
 /** The Nostr browser: scrollable global/following feed + a box to publish a note. */
 public class GuiNostrFeed extends GuiScreen {
-    private static final int BTN_POST = 0, BTN_ACCOUNT = 1, BTN_FEED = 2;
+    private static final int BTN_POST = 0, BTN_ACCOUNT = 1, BTN_FEED = 2, BTN_SEARCH = 3;
 
     private final NostrClient nc = NostrClient.get();
     private GuiTextField compose;
+    private GuiTextField searchBox;
     private GuiButton accountButton;
     private GuiButton feedButton;
+    private GuiButton searchButton;
     private boolean followingFeed;
     private final List<String> lines = new ArrayList<String>();
     private int scroll;
@@ -34,11 +36,16 @@ public class GuiNostrFeed extends GuiScreen {
         nc.ensureStarted();
         pw = Math.min(width - 20, 380);
         px = (width - pw) / 2;
-        feedTop = 34;
+        feedTop = 58;
         feedBottom = height - 52;
         buttonList.clear();
         accountButton = addButton(new GuiButton(BTN_ACCOUNT, px + pw - 90, 8, 90, 20, accountLabel()));
         feedButton = addButton(new GuiButton(BTN_FEED, px + 86, 8, 90, 20, feedLabel()));
+        searchButton = addButton(new GuiButton(BTN_SEARCH, px + pw - 56, 33, 56, 20, searchButtonLabel()));
+        String oldSearch = searchBox == null ? nc.getSearchQuery() : searchBox.getText();
+        searchBox = new GuiTextField(11, fontRenderer, px, 33, pw - 62, 20);
+        searchBox.setMaxStringLength(128);
+        searchBox.setText(oldSearch);
         addButton(new GuiButton(BTN_POST, px + pw - 60, height - 43, 60, 20, "Post"));
         String old = compose == null ? "" : compose.getText();
         compose = new GuiTextField(10, fontRenderer, px, height - 43, pw - 66, 20);
@@ -68,6 +75,14 @@ public class GuiNostrFeed extends GuiScreen {
         if (b.id == BTN_POST) post();
         else if (b.id == BTN_ACCOUNT) mc.displayGuiScreen(new GuiNostrLogin(this));
         else if (b.id == BTN_FEED) { followingFeed = !followingFeed; scroll = 0; builtVersion = -1; }
+        else if (b.id == BTN_SEARCH) {
+            if (nc.isSearching()) {
+                nc.search("", followingFeed);
+                searchBox.setText("");
+                scroll = 0;
+                builtVersion = -1;
+            } else runSearch();
+        }
     }
 
     private void post() {
@@ -82,12 +97,29 @@ public class GuiNostrFeed extends GuiScreen {
         }
     }
 
+    private void runSearch() {
+        try {
+            String query = searchBox.getText().trim();
+            if (nc.isSearching() && query.equals(nc.getSearchQuery())) {
+                nc.search("", followingFeed);
+            } else {
+                nc.search(query, followingFeed);
+            }
+            scroll = 0;
+            builtVersion = -1;
+        } catch (IllegalArgumentException e) {
+            nc.setStatus("\u00a7c" + e.getMessage());
+        }
+    }
+
     @Override
     protected void keyTyped(char c, int key) throws IOException {
         if (key == Keyboard.KEY_RETURN || key == Keyboard.KEY_NUMPADENTER) {
-            post();
+            if (searchBox.isFocused()) runSearch();
+            else post();
             return;
         }
+        if (searchBox.textboxKeyTyped(c, key)) return;
         if (compose.textboxKeyTyped(c, key)) return;
         super.keyTyped(c, key); // ESC closes
     }
@@ -95,7 +127,10 @@ public class GuiNostrFeed extends GuiScreen {
     @Override
     protected void mouseClicked(int mx, int my, int btn) throws IOException {
         super.mouseClicked(mx, my, btn);
+        searchBox.mouseClicked(mx, my, btn);
         compose.mouseClicked(mx, my, btn);
+        searchBox.setFocused(mx >= px && mx <= px + pw - 62 && my >= 33 && my <= 53);
+        compose.setFocused(mx >= px && mx <= px + pw - 66 && my >= height - 43 && my <= height - 23);
     }
 
     @Override
@@ -107,13 +142,15 @@ public class GuiNostrFeed extends GuiScreen {
 
     private void rebuildLines() {
         lines.clear();
-        List<NostrEvent> feed = nc.getFeed();
-        if (followingFeed) {
+        List<NostrEvent> feed = nc.isSearching() ? nc.getSearchResults() : nc.getFeed();
+        if (!nc.isSearching() && followingFeed) {
             List<NostrEvent> filtered = new ArrayList<NostrEvent>();
             for (NostrEvent e : feed) if (nc.follows(e.pubkey)) filtered.add(e);
             feed = filtered;
         }
-        if (feed.isEmpty()) lines.add("\u00a77Waiting for notes from relays...");
+        if (feed.isEmpty()) lines.add(nc.isSearching()
+                ? "\u00a77Searching recent relay history..."
+                : "\u00a77Waiting for notes from relays...");
         for (NostrEvent e : feed) {
             lines.add("\u00a7b" + nc.displayName(e.pubkey) + " \u00a78- \u00a77" + Fmt.ago(e.createdAt));
             int n = 0;
@@ -137,10 +174,14 @@ public class GuiNostrFeed extends GuiScreen {
             rebuildLines();
         accountButton.displayString = accountLabel();
         feedButton.displayString = feedLabel();
+        searchButton.displayString = searchButtonLabel();
 
         drawString(fontRenderer, "\u00a7d\u00a7lNostrCraft", px, 9, 0xFFFFFF);
         String who = nc.isLoggedIn() ? "\u00a77" + shorten(nc.getNpub()) : "\u00a78not logged in";
         drawString(fontRenderer, who, px, 20, 0xFFFFFF);
+        searchBox.drawTextBox();
+        if (searchBox.getText().isEmpty() && !searchBox.isFocused())
+            drawString(fontRenderer, "\u00a78Search recent notes (NIP-50 where available)", px + 4, 39, 0xFFFFFF);
 
         int visible = (feedBottom - feedTop) / 10;
         int max = Math.max(0, lines.size() - visible);
@@ -169,4 +210,6 @@ public class GuiNostrFeed extends GuiScreen {
     private String feedLabel() {
         return followingFeed ? "Following (" + nc.getFollowingCount() + ")" : "Global";
     }
+
+    private String searchButtonLabel() { return nc.isSearching() ? "Clear" : "Search"; }
 }

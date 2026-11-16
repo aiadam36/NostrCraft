@@ -3,6 +3,11 @@ package com.nostrcraft.nostr;
 import com.google.gson.*;
 
 import java.io.File;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.*;
@@ -14,11 +19,19 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Everything Nostr, with no Minecraft dependency: relays, subscriptions, the feed cache,
  * profile names, login state and publishing.
  *
- * Implements: NIP-01 (events, REQ/EVENT/CLOSE, OK/EOSE/NOTICE/CLOSED), NIP-19 (npub/nsec).
+ * Implements: NIP-01 (events and relay messages), NIP-19 (npub/nsec), NIP-50 search with NIP-01 fallback.
  * Runs entirely on the CLIENT: your secret key never touches the server.
  */
 public class NostrClient implements RelayConnection.Listener {
     private static final NostrClient INSTANCE = new NostrClient();
+    private static final ExecutorService NIP11_EXECUTOR = Executors.newFixedThreadPool(2, new ThreadFactory() {
+        private final AtomicInteger number = new AtomicInteger();
+        @Override public Thread newThread(Runnable task) {
+            Thread thread = new Thread(task, "NostrCraft-NIP11-" + number.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        }
+    });
 
     public static NostrClient get() { return INSTANCE; }
 
@@ -46,15 +59,22 @@ public class NostrClient implements RelayConnection.Listener {
 
     private final List<String> relayUrls = new CopyOnWriteArrayList<String>();
     private final Map<String, RelayConnection> relays = new ConcurrentHashMap<String, RelayConnection>();
+    private final Map<String, Boolean> searchSupport = new ConcurrentHashMap<String, Boolean>();
 
     private final List<NostrEvent> feed = new ArrayList<NostrEvent>(); // guarded by 'feed'
     private final Set<String> seen = new HashSet<String>();            // guarded by 'feed'
+    private final List<NostrEvent> searchResults = new ArrayList<NostrEvent>(); // guarded by 'searchResults'
+    private final Set<String> searchSeen = new HashSet<String>();
+    private volatile String searchQuery = "";
+    private volatile boolean searchFollowingOnly;
+    private volatile String searchSubscription = "";
     private final Map<String, Profile> profiles = new ConcurrentHashMap<String, Profile>();
     private final Map<String, String> shortNames = new ConcurrentHashMap<String, String>();
     private final Set<String> following = Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
     private final Set<String> metaKnown = Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
     private final Queue<String> metaQueue = new ConcurrentLinkedQueue<String>();
     private final AtomicInteger metaCounter = new AtomicInteger();
+    private final AtomicInteger searchCounter = new AtomicInteger();
     private final AtomicBoolean started = new AtomicBoolean();
     private ScheduledFuture<?> metaTask;
 
@@ -201,6 +221,106 @@ public class NostrClient implements RelayConnection.Listener {
         synchronized (feed) { return new ArrayList<NostrEvent>(feed); }
     }
 
+    public boolean isSearching() { return !searchQuery.isEmpty(); }
+    public String getSearchQuery() { return searchQuery; }
+    public List<NostrEvent> getSearchResults() {
+        synchronized (searchResults) { return new ArrayList<NostrEvent>(searchResults); }
+    }
+
+    /** Starts/replaces a search, using NIP-50 where advertised and recent-event matching elsewhere. */
+    public void search(String query, boolean followingOnly) {
+        String clean = query == null ? "" : query.trim();
+        if (clean.length() > 128) throw new IllegalArgumentException("Search is limited to 128 characters");
+        closeSearch();
+        searchQuery = clean;
+        searchFollowingOnly = followingOnly;
+        searchSubscription = clean.isEmpty() ? "" : "nc-search-" + searchCounter.incrementAndGet();
+        synchronized (searchResults) { searchResults.clear(); searchSeen.clear(); }
+        feedVersion++;
+        if (clean.isEmpty()) return;
+        if (followingOnly && following.isEmpty()) {
+            status = "No followed profiles to search";
+            return;
+        }
+        for (RelayConnection rc : openRelays()) discoverSearchSupport(rc, searchSubscription);
+        status = "Searching relays for: " + clean;
+    }
+
+    private void closeSearch() {
+        String old = searchSubscription;
+        if (old.isEmpty()) return;
+        JsonArray close = new JsonArray();
+        close.add(new JsonPrimitive("CLOSE")); close.add(new JsonPrimitive(old));
+        for (RelayConnection rc : openRelays()) rc.send(close.toString());
+    }
+
+    private void discoverSearchSupport(final RelayConnection c, final String subscription) {
+        Boolean supported = searchSupport.get(c.url);
+        if (supported != null) {
+            if (subscription.equals(searchSubscription)) sendSearch(c, supported.booleanValue());
+            return;
+        }
+        NIP11_EXECUTOR.execute(new Runnable() {
+            @Override public void run() {
+                boolean supported = fetchNip50Support(c.url);
+                searchSupport.put(c.url, Boolean.valueOf(supported));
+                if (subscription.equals(searchSubscription) && !searchQuery.isEmpty() && c.isOpen())
+                    sendSearch(c, supported);
+            }
+        });
+    }
+
+    private boolean fetchNip50Support(String relayUrl) {
+        HttpURLConnection connection = null;
+        try {
+            URI relay = URI.create(relayUrl);
+            String scheme = "wss".equalsIgnoreCase(relay.getScheme()) ? "https" : "http";
+            URL infoUrl = new URI(scheme, null, relay.getHost(), relay.getPort(), relay.getPath(), null, null).toURL();
+            connection = (HttpURLConnection) infoUrl.openConnection();
+            connection.setRequestMethod("GET");
+            connection.setRequestProperty("Accept", "application/nostr+json");
+            connection.setConnectTimeout(4000);
+            connection.setReadTimeout(4000);
+            if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) return false;
+            BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8));
+            StringBuilder body = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null && body.length() < 512 * 1024) body.append(line);
+            reader.close();
+            JsonObject info = parser.parse(body.toString()).getAsJsonObject();
+            JsonElement nips = info.get("supported_nips");
+            if (nips == null || !nips.isJsonArray()) return false;
+            for (JsonElement nip : nips.getAsJsonArray()) if (nip.getAsInt() == 50) return true;
+        } catch (Exception ignored) {
+            // If NIP-11 is unavailable, use the standard-filter fallback.
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
+        return false;
+    }
+
+    private void sendSearch(RelayConnection c, boolean supportsNip50) {
+        String query = searchQuery;
+        if (query.isEmpty()) return;
+        JsonObject filter = new JsonObject();
+        JsonArray kinds = new JsonArray(); kinds.add(new JsonPrimitive(1));
+        filter.add("kinds", kinds);
+        if (supportsNip50) filter.addProperty("search", query);
+        filter.addProperty("limit", 200);
+        if (searchFollowingOnly) {
+            JsonArray authors = new JsonArray();
+            synchronized (following) { for (String pubkey : following) authors.add(new JsonPrimitive(pubkey)); }
+            if (authors.size() == 0) {
+                status = "No followed profiles to search";
+                return;
+            }
+            filter.add("authors", authors);
+        }
+        JsonArray req = new JsonArray();
+        req.add(new JsonPrimitive("REQ")); req.add(new JsonPrimitive(searchSubscription)); req.add(filter);
+        c.send(req.toString());
+    }
+
     public String displayName(String pubkey) {
         Profile p = profiles.get(pubkey);
         if (p != null) return p.name;
@@ -229,6 +349,7 @@ public class NostrClient implements RelayConnection.Listener {
         status = "Connected: " + host(c.url);
         // NIP-01 REQ: latest 80 text notes from this relay
         c.send("[\"REQ\",\"" + FEED_SUB + "\",{\"kinds\":[1],\"limit\":80}]");
+        if (isSearching()) discoverSearchSupport(c, searchSubscription);
         requestFollowList(c);
     }
 
@@ -251,7 +372,7 @@ public class NostrClient implements RelayConnection.Listener {
         JsonArray a = parser.parse(text).getAsJsonArray();
         String type = a.get(0).getAsString();
         if ("EVENT".equals(type)) {
-            if (a.size() >= 3) handleEvent(a.get(2));
+            if (a.size() >= 3) handleEvent(a.get(2), a.get(1).getAsString(), c);
         } else if ("OK".equals(type)) {
             boolean ok = a.get(2).getAsBoolean();
             String why = a.size() > 3 ? a.get(3).getAsString() : "";
@@ -259,15 +380,27 @@ public class NostrClient implements RelayConnection.Listener {
                         : "\u00a7c" + host(c.url) + " rejected: " + why;
         } else if ("EOSE".equals(type)) {
             String sub = a.get(1).getAsString();
-            if (sub.startsWith("nc-meta") || "nc-follow-list".equals(sub)) c.send("[\"CLOSE\",\"" + sub + "\"]");
+            if (sub.startsWith("nc-meta") || "nc-follow-list".equals(sub) || sub.equals(searchSubscription))
+                c.send("[\"CLOSE\",\"" + sub + "\"]");
         } else if ("NOTICE".equals(type)) {
             status = "\u00a7e" + host(c.url) + ": " + a.get(1).getAsString();
         } else if ("CLOSED".equals(type)) {
-            status = "\u00a7e" + host(c.url) + " closed sub: " + (a.size() > 2 ? a.get(2).getAsString() : "");
+            String sub = a.size() > 1 ? a.get(1).getAsString() : "";
+            Boolean supported = searchSupport.get(c.url);
+            if (sub.equals(searchSubscription) && Boolean.TRUE.equals(supported)) {
+                searchSupport.put(c.url, Boolean.FALSE);
+                sendSearch(c, false);
+                status = "\u00a7e" + host(c.url) + " rejected NIP-50; trying recent notes locally";
+            } else {
+                status = sub.startsWith("nc-search-")
+                        ? "\u00a7e" + host(c.url) + " could not complete the search request"
+                        : "\u00a7e" + host(c.url) + " closed sub: " + (a.size() > 2 ? a.get(2).getAsString() : "");
+            }
         }
     }
 
-    private void handleEvent(JsonElement el) {
+    private void handleEvent(JsonElement el, String subscription, RelayConnection relay) {
+        if (subscription.startsWith("nc-search-") && !subscription.equals(searchSubscription)) return;
         NostrEvent e = NostrEvent.fromJson(el);
         if (e == null || (e.kind != NostrEvent.KIND_TEXT_NOTE && e.kind != NostrEvent.KIND_METADATA && e.kind != NostrEvent.KIND_CONTACT_LIST)) return;
         if (!e.verify(VERIFY_SIGNATURES)) return;
@@ -285,8 +418,31 @@ public class NostrClient implements RelayConnection.Listener {
         if (HIDE_REPLIES && e.hasTag("e")) return;
         if (e.createdAt > System.currentTimeMillis() / 1000L + 600) return; // ignore far-future spam
         if (e.content.trim().isEmpty()) return;
-        addToFeed(e);
+        if (!searchSubscription.isEmpty() && searchSubscription.equals(subscription)) {
+            Boolean supportsNip50 = searchSupport.get(relay.url);
+            if (supportsNip50 != null && !supportsNip50.booleanValue() && !matchesSearch(e.content, searchQuery)) return;
+            addToSearch(e);
+        }
+        else addToFeed(e);
         queueMeta(e.pubkey);
+    }
+
+    private static boolean matchesSearch(String content, String query) {
+        String text = content.toLowerCase(Locale.ROOT);
+        String[] terms = query.toLowerCase(Locale.ROOT).trim().split("\\s+");
+        for (String term : terms) if (!term.isEmpty() && !text.contains(term)) return false;
+        return terms.length > 0;
+    }
+
+    private void addToSearch(NostrEvent ev) {
+        synchronized (searchResults) {
+            if (!searchSeen.add(ev.id)) return;
+            int i = 0;
+            while (i < searchResults.size() && searchResults.get(i).createdAt >= ev.createdAt) i++;
+            searchResults.add(i, ev);
+            while (searchResults.size() > 200) searchSeen.remove(searchResults.remove(searchResults.size() - 1).id);
+        }
+        feedVersion++;
     }
 
     private void handleFollowList(NostrEvent e) {
@@ -305,6 +461,10 @@ public class NostrClient implements RelayConnection.Listener {
             for (String pubkey : next) authors.add(new JsonPrimitive(pubkey));
             String req = "[\"REQ\",\"nc-follow-feed\",{\"kinds\":[1],\"authors\":" + authors + ",\"limit\":200}]";
             for (RelayConnection rc : openRelays()) rc.send(req);
+        }
+        if (isSearching() && searchFollowingOnly) {
+            synchronized (searchResults) { searchResults.clear(); searchSeen.clear(); }
+            for (RelayConnection rc : openRelays()) discoverSearchSupport(rc, searchSubscription);
         }
         feedVersion++;
         status = "Following " + next.size() + " profile(s)";
