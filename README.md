@@ -11,11 +11,13 @@ Browse and post to **Nostr** from inside of your Minecraft
 
 ## Implemented
 
-| Spec    | What                                                                                                                          |
-|---------|-------------------------------------------------------------------------------------------------------------------------------|
-| NIP-01  | events, canonical id hashing, `REQ` / `EVENT` / `CLOSE`, `OK` / `EOSE` / `NOTICE` / `CLOSED`, kind 0 (names) + kind 1 (notes) |
-| NIP-19  | `npub` / `nsec` bech32 encode + decode                                                                                        |
-| BIP-340 | Schnorr sign + verify (pure `BigInteger`, tested against the official vector)                                                 |
+| Spec    | What                                                                                                                                                                                                                                           |
+|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| NIP-01  | validated events with canonical id hashing and signatures; general `REQ` filters (ids, authors, kinds, tags, time, limit), persistent subscriptions with reconnect, `EVENT` publishing, and relay `OK` / `EOSE` / `NOTICE` / `CLOSED` handling |
+| NIP-02  | reads the logged-in account's kind-3 follow list and filters a Following feed by `p` tags                                                                                                                                                      |
+| NIP-19  | `npub` / `nsec` bech32 encode + decode                                                                                                                                                                                                         |
+| NIP-50  | checks relay NIP-11 capabilities before using `search`; falls back to local matching over up to 200 recent kind-1 notes per relay                                                                                                              |
+| BIP-340 | Schnorr sign + verify (pure `BigInteger`, tested against the official vector)                                                                                                                                                                  |
 
 Incoming event ids **and signatures are verified**. Replies are hidden from the feed (`NostrClient.HIDE_REPLIES`)
 
@@ -77,7 +79,6 @@ src/main/java/com/nostrcraft/nostr/ -> Schnorr, Bech32, NostrEvent, RelayConnect
 
 ## Ideas / next steps
 
-- NIP-02 follow list as a "Following" feed
 - NIP-05 verified names
 - NIP-10 threads & replies
 - NIP-18 reposts
@@ -90,6 +91,7 @@ src/main/java/com/nostrcraft/nostr/ -> Schnorr, Bech32, NostrEvent, RelayConnect
 - NIP-89 client tag
 - per-block filters (hashtag / author / relay) stored in `TileNostrScreen`
 - profile pictures via a texture cache
+- test NIP-02 follow list functionality since it's experimental feat
 
 ## Contributing
 
