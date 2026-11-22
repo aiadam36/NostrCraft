@@ -15,9 +15,9 @@ Browse and post to **Nostr** from inside of your Minecraft
 |---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | NIP-01  | validated events with canonical id hashing and signatures; general `REQ` filters (ids, authors, kinds, tags, time, limit), persistent subscriptions with reconnect, `EVENT` publishing, and relay `OK` / `EOSE` / `NOTICE` / `CLOSED` handling |
 | NIP-02  | reads the logged-in account's kind-3 follow list and filters a Following feed by `p` tags                                                                                                                                                      |
-| NIP-05  | verifies kind-0 identifiers against `https://<domain>/.well-known/nostr.json` and marks matching profiles                                                                                                                                      |
+| NIP-05  | verifies kind-0 identifiers against `https://<domain>/.well-known/nostr.json`, marks matching profiles, and resolves searched identifiers back to matching profiles                                                                            |
 | NIP-19  | `npub` / `nsec` bech32 encode + decode; parses public entities, renders references as readable links, and opens profile/event detail views when clicked                                                                                        |
-| NIP-50  | checks relay NIP-11 capabilities before using `search`; falls back to local matching over up to 200 recent kind-1 notes per relay                                                                                                              |
+| NIP-50  | checks relay NIP-11 capabilities before using `search`; supports `from:`, `kind:`, `since:`, `until:`, and `#tag` filters with local text matching on relays without NIP-50                                                                    |
 | BIP-340 | Schnorr sign + verify (pure `BigInteger`, tested against the official vector)                                                                                                                                                                  |
 
 Incoming event ids **and signatures are verified**. Replies are hidden from the feed (`NostrClient.HIDE_REPLIES`)
@@ -37,6 +37,8 @@ All commands were client-side only, they were never sent to the server
 ```
 
 > Be careful with `/nostr export`, it prints your nsec
+
+The feed search accepts note text, NIP-19 profile/event identifiers, and NIP-05 identifiers such as `name@example.com`. Combine text with filters such as `from:npub1... kind:1 since:7d #nostr`. `since:` and `until:` accept Unix seconds or relative durations such as `2h` and `7d`.
 
 ## Crafting recipe
 
