@@ -15,6 +15,7 @@ Browse and post to **Nostr** from inside of your Minecraft
 |---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | NIP-01  | validated events with canonical id hashing and signatures; general `REQ` filters (ids, authors, kinds, tags, time, limit), persistent subscriptions with reconnect, `EVENT` publishing, and relay `OK` / `EOSE` / `NOTICE` / `CLOSED` handling |
 | NIP-02  | reads the logged-in account's kind-3 follow list and filters a Following feed by `p` tags                                                                                                                                                      |
+| NIP-05  | verifies kind-0 identifiers against `https://<domain>/.well-known/nostr.json` and marks matching profiles                                                                                                                                      |
 | NIP-19  | `npub` / `nsec` bech32 encode + decode                                                                                                                                                                                                         |
 | NIP-50  | checks relay NIP-11 capabilities before using `search`; falls back to local matching over up to 200 recent kind-1 notes per relay                                                                                                              |
 | BIP-340 | Schnorr sign + verify (pure `BigInteger`, tested against the official vector)                                                                                                                                                                  |
@@ -85,7 +86,6 @@ src/main/java/com/nostrcraft/nostr/ -> Schnorr, Bech32, NostrEvent, RelayConnect
 
 ## Ideas / next steps
 
-- NIP-05 verified names
 - NIP-10 threads & replies
 - NIP-18 reposts
 - NIP-22 comment
