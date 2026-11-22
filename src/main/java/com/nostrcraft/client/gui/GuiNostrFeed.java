@@ -3,6 +3,7 @@ package com.nostrcraft.client.gui;
 import com.nostrcraft.client.Fmt;
 import com.nostrcraft.nostr.NostrClient;
 import com.nostrcraft.nostr.NostrEvent;
+import com.nostrcraft.nostr.Nip19;
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.GuiTextField;
@@ -12,10 +13,26 @@ import org.lwjgl.input.Mouse;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /** The Nostr browser: scrollable global/following feed + a box to publish a note. */
 public class GuiNostrFeed extends GuiScreen {
     private static final int BTN_POST = 0, BTN_ACCOUNT = 1, BTN_FEED = 2, BTN_SEARCH = 3;
+    private static final Pattern NOSTR_REFERENCE = Pattern.compile(
+            "(?i)(?<![A-Za-z0-9_])(?:nostr:)?(?:npub|note|nprofile|nevent|naddr)1[023456789acdefghjklmnpqrstuvwxyz]{6,4994}");
+
+    private static final class LinkSpan {
+        final int start, end;
+        final Nip19.Entity entity;
+        LinkSpan(int start, int end, Nip19.Entity entity) { this.start = start; this.end = end; this.entity = entity; }
+    }
+
+    private static final class FeedLine {
+        final String text;
+        final List<LinkSpan> links;
+        FeedLine(String text, List<LinkSpan> links) { this.text = text; this.links = links; }
+    }
 
     private final NostrClient nc = NostrClient.get();
     private GuiTextField compose;
@@ -24,7 +41,7 @@ public class GuiNostrFeed extends GuiScreen {
     private GuiButton feedButton;
     private GuiButton searchButton;
     private boolean followingFeed;
-    private final List<String> lines = new ArrayList<String>();
+    private final List<FeedLine> lines = new ArrayList<FeedLine>();
     private int scroll;
     private int builtVersion = -1, builtWidth = -1;
     private long builtAt;
@@ -148,18 +165,14 @@ public class GuiNostrFeed extends GuiScreen {
             for (NostrEvent e : feed) if (nc.follows(e.pubkey)) filtered.add(e);
             feed = filtered;
         }
-        if (feed.isEmpty()) lines.add(nc.isSearching()
+        if (feed.isEmpty()) addLine(nc.isSearching()
                 ? "\u00a77Searching recent relay history..."
                 : "\u00a77Waiting for notes from relays...");
         for (NostrEvent e : feed) {
             String verified = nc.verifiedNip05(e.pubkey) == null ? "" : " \u00a7a[NIP-05]";
-            lines.add("\u00a7b" + nc.displayName(e.pubkey) + verified + " \u00a78- \u00a77" + Fmt.ago(e.createdAt));
-            int n = 0;
-            for (Object l : fontRenderer.listFormattedStringToWidth(Fmt.clean(e.content, 600), pw - 8)) {
-                if (n++ >= 12) { lines.add("\u00a78..."); break; }
-                lines.add((String) l);
-            }
-            lines.add("");
+            addLine("\u00a7b" + nc.displayName(e.pubkey) + verified + " \u00a78- \u00a77" + Fmt.ago(e.createdAt));
+            addWrappedContent(Fmt.clean(e.content, 600), 12);
+            addLine("");
         }
         builtVersion = nc.getFeedVersion();
         builtWidth = width;
@@ -188,7 +201,7 @@ public class GuiNostrFeed extends GuiScreen {
         int max = Math.max(0, lines.size() - visible);
         if (scroll > max) scroll = max;
         for (int i = 0; i < visible && scroll + i < lines.size(); i++)
-            drawString(fontRenderer, lines.get(scroll + i), px, feedTop + i * 10, 0xFFFFFF);
+            drawFeedLine(lines.get(scroll + i), px, feedTop + i * 10);
         if (max > 0) { // scrollbar
             int h = feedBottom - feedTop;
             int barH = Math.max(12, h * visible / lines.size());
@@ -202,6 +215,101 @@ public class GuiNostrFeed extends GuiScreen {
             drawString(fontRenderer, "\u00a78What's on your mind?", px + 4, height - 37, 0xFFFFFF);
         drawString(fontRenderer, nc.getStatus(), px, height - 17, 0xAAAAAA);
         super.drawScreen(mx, my, pt);
+    }
+
+    private void addLine(String text) {
+        lines.add(new FeedLine(text, new ArrayList<LinkSpan>()));
+    }
+
+    private void addWrappedContent(String content, int maxLines) {
+        StringBuilder rendered = new StringBuilder();
+        List<LinkSpan> spans = new ArrayList<LinkSpan>();
+        Matcher matcher = NOSTR_REFERENCE.matcher(content);
+        int copiedThrough = 0;
+        while (matcher.find()) {
+            Nip19.Entity entity = Nip19.parse(matcher.group());
+            if (entity == null) continue;
+            rendered.append(content, copiedThrough, matcher.start());
+            int start = rendered.length();
+            String label = referenceLabel(entity);
+            rendered.append(label);
+            spans.add(new LinkSpan(start, rendered.length(), entity));
+            copiedThrough = matcher.end();
+        }
+        rendered.append(content, copiedThrough, content.length());
+
+        String[] paragraphs = rendered.toString().split("\\n", -1);
+        int added = 0;
+        boolean truncated = false;
+        for (int paragraphIndex = 0; paragraphIndex < paragraphs.length && !truncated; paragraphIndex++) {
+            String paragraph = paragraphs[paragraphIndex];
+            List<?> wrapped = fontRenderer.listFormattedStringToWidth(paragraph, pw - 8);
+            int searchFrom = 0;
+            for (Object item : wrapped) {
+                if (added >= maxLines) { truncated = true; break; }
+                String line = (String) item;
+                int lineStart = paragraph.indexOf(line, searchFrom);
+                if (lineStart < 0) lineStart = searchFrom;
+                int lineEnd = lineStart + line.length();
+                int globalStart = 0;
+                for (int i = 0; i < paragraphIndex; i++) globalStart += paragraphs[i].length() + 1;
+                List<LinkSpan> lineLinks = new ArrayList<LinkSpan>();
+                for (LinkSpan span : spans) {
+                    int start = Math.max(span.start, globalStart + lineStart);
+                    int end = Math.min(span.end, globalStart + lineEnd);
+                    if (start < end) lineLinks.add(new LinkSpan(start - (globalStart + lineStart), end - (globalStart + lineStart), span.entity));
+                }
+                lines.add(new FeedLine(line, lineLinks));
+                added++;
+                searchFrom = lineEnd;
+            }
+            if (paragraphIndex < paragraphs.length - 1 && !truncated && added < maxLines) {
+                addLine("");
+                added++;
+            }
+        }
+        if (truncated) addLine("\u00a78...");
+    }
+
+    private String referenceLabel(Nip19.Entity entity) {
+        switch (entity.type) {
+            case NPUB:
+            case NPROFILE:
+                return "[profile: " + Fmt.clean(nc.displayName(entity.pubkey), 32) + "]";
+            case NOTE:
+                return "[note " + abbreviate(entity.eventId) + "]";
+            case NEVENT:
+                return "[event " + abbreviate(entity.eventId) + "]";
+            case NADDR:
+                return "[address: " + Fmt.clean(entity.identifier, 24) + "]";
+            default:
+                return "[Nostr reference]";
+        }
+    }
+
+    private static String abbreviate(String hex) {
+        return hex.substring(0, 8) + "..." + hex.substring(hex.length() - 6);
+    }
+
+    private void drawFeedLine(FeedLine line, int x, int y) {
+        if (line.links.isEmpty()) {
+            drawString(fontRenderer, line.text, x, y, 0xFFFFFF);
+            return;
+        }
+        int position = 0;
+        for (LinkSpan link : line.links) {
+            if (link.start > position) {
+                String before = line.text.substring(position, link.start);
+                drawString(fontRenderer, before, x, y, 0xFFFFFF);
+                x += fontRenderer.getStringWidth(before);
+            }
+            String label = line.text.substring(link.start, link.end);
+            drawString(fontRenderer, "\u00a7b" + label, x, y, 0xFFFFFF);
+            x += fontRenderer.getStringWidth(label);
+            position = link.end;
+        }
+        if (position < line.text.length())
+            drawString(fontRenderer, line.text.substring(position), x, y, 0xFFFFFF);
     }
 
     private static String shorten(String s) {
