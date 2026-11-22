@@ -60,6 +60,12 @@ This repository already includes the Gradle wrapper (Gradle **4.9**), so you don
 ./gradlew --no-daemon setupDecompWorkspace build
 ```
 
+For second run:
+
+```sh
+./gradlew --no-daemon build
+```
+
 The built mod is in `build/libs/`. To launch the Minecraft client for development, run `./gradlew runClient` from the same directory after setup
 
 ## Layout
