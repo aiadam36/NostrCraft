@@ -92,6 +92,7 @@ public class NostrClient implements RelayConnection.Listener {
     private final Queue<String> metaQueue = new ConcurrentLinkedQueue<String>();
     private final AtomicInteger metaCounter = new AtomicInteger();
     private final AtomicInteger searchCounter = new AtomicInteger();
+    private final AtomicInteger entityRequestCounter = new AtomicInteger();
     private final AtomicBoolean started = new AtomicBoolean();
     private ScheduledFuture<?> metaTask;
 
@@ -225,6 +226,50 @@ public class NostrClient implements RelayConnection.Listener {
         List<RelayConnection> open = openRelays();
         for (RelayConnection relay : open) relay.send(message);
         return open.size();
+    }
+
+    /** Requests the entity represented by a parsed NIP-19 reference. Relay hints are preferred when connected. */
+    public String requestEntity(Nip19.Entity entity, SubscriptionListener listener) {
+        if (entity == null || listener == null) throw new IllegalArgumentException("Entity and listener are required");
+        ensureStarted();
+        String subscription = "nc-entity-" + entityRequestCounter.incrementAndGet();
+        NostrFilter[] filters;
+        switch (entity.type) {
+            case NPUB:
+            case NPROFILE:
+                filters = new NostrFilter[] {
+                        new NostrFilter().kinds(NostrEvent.KIND_METADATA).authors(entity.pubkey).limit(1),
+                        new NostrFilter().kinds(NostrEvent.KIND_TEXT_NOTE).authors(entity.pubkey).limit(20)
+                };
+                break;
+            case NOTE:
+            case NEVENT:
+                filters = new NostrFilter[] { new NostrFilter().ids(entity.eventId).limit(1) };
+                break;
+            case NADDR:
+                if (entity.kind == null || entity.kind.longValue() > 65535L)
+                    throw new IllegalArgumentException("This address uses an unsupported event kind");
+                filters = new NostrFilter[] { new NostrFilter().kinds(entity.kind.intValue())
+                        .authors(entity.pubkey).tag('d', entity.identifier).limit(1) };
+                break;
+            default:
+                throw new IllegalArgumentException("Unsupported Nostr reference");
+        }
+
+        JsonArray req = new JsonArray();
+        req.add(new JsonPrimitive("REQ"));
+        req.add(new JsonPrimitive(subscription));
+        for (NostrFilter filter : filters) req.add(filter.toJson());
+        String message = req.toString();
+        customSubscriptions.put(subscription, message);
+        subscriptionListeners.put(subscription, listener);
+
+        List<RelayConnection> open = openRelays();
+        List<RelayConnection> hinted = new ArrayList<RelayConnection>();
+        for (RelayConnection relay : open) if (entity.relays.contains(relay.url)) hinted.add(relay);
+        List<RelayConnection> targets = hinted.isEmpty() ? open : hinted;
+        for (RelayConnection relay : targets) relay.send(message);
+        return subscription;
     }
 
     /** Closes a NIP-01 subscription on every currently connected relay. */
@@ -488,6 +533,10 @@ public class NostrClient implements RelayConnection.Listener {
         if (!e.verify(VERIFY_SIGNATURES)) return;
         SubscriptionListener listener = subscriptionListeners.get(subscription);
         if (listener != null) try { listener.onEvent(e, relay.url); } catch (Throwable ignored) { }
+        if (subscription.startsWith("nc-entity-")) {
+            if (e.kind == NostrEvent.KIND_METADATA) handleProfile(e);
+            return;
+        }
         if (e.kind != NostrEvent.KIND_TEXT_NOTE && e.kind != NostrEvent.KIND_METADATA && e.kind != NostrEvent.KIND_CONTACT_LIST) return;
 
         if (e.kind == NostrEvent.KIND_METADATA) {

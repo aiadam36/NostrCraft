@@ -34,6 +34,17 @@ public class GuiNostrFeed extends GuiScreen {
         FeedLine(String text, List<LinkSpan> links) { this.text = text; this.links = links; }
     }
 
+    private static final class LinkHitbox {
+        final int x, y, width, height;
+        final Nip19.Entity entity;
+        LinkHitbox(int x, int y, int width, int height, Nip19.Entity entity) {
+            this.x = x; this.y = y; this.width = width; this.height = height; this.entity = entity;
+        }
+        boolean contains(int mouseX, int mouseY) {
+            return mouseX >= x && mouseX < x + width && mouseY >= y && mouseY < y + height;
+        }
+    }
+
     private final NostrClient nc = NostrClient.get();
     private GuiTextField compose;
     private GuiTextField searchBox;
@@ -42,6 +53,7 @@ public class GuiNostrFeed extends GuiScreen {
     private GuiButton searchButton;
     private boolean followingFeed;
     private final List<FeedLine> lines = new ArrayList<FeedLine>();
+    private final List<LinkHitbox> linkHitboxes = new ArrayList<LinkHitbox>();
     private int scroll;
     private int builtVersion = -1, builtWidth = -1;
     private long builtAt;
@@ -144,6 +156,12 @@ public class GuiNostrFeed extends GuiScreen {
     @Override
     protected void mouseClicked(int mx, int my, int btn) throws IOException {
         super.mouseClicked(mx, my, btn);
+        if (btn == 0) {
+            for (LinkHitbox hitbox : linkHitboxes) if (hitbox.contains(mx, my)) {
+                mc.displayGuiScreen(new GuiNostrEntity(this, hitbox.entity));
+                return;
+            }
+        }
         searchBox.mouseClicked(mx, my, btn);
         compose.mouseClicked(mx, my, btn);
         searchBox.setFocused(mx >= px && mx <= px + pw - 62 && my >= 33 && my <= 53);
@@ -200,8 +218,9 @@ public class GuiNostrFeed extends GuiScreen {
         int visible = (feedBottom - feedTop) / 10;
         int max = Math.max(0, lines.size() - visible);
         if (scroll > max) scroll = max;
+        linkHitboxes.clear();
         for (int i = 0; i < visible && scroll + i < lines.size(); i++)
-            drawFeedLine(lines.get(scroll + i), px, feedTop + i * 10);
+            drawFeedLine(lines.get(scroll + i), px, feedTop + i * 10, mx, my);
         if (max > 0) { // scrollbar
             int h = feedBottom - feedTop;
             int barH = Math.max(12, h * visible / lines.size());
@@ -291,7 +310,7 @@ public class GuiNostrFeed extends GuiScreen {
         return hex.substring(0, 8) + "..." + hex.substring(hex.length() - 6);
     }
 
-    private void drawFeedLine(FeedLine line, int x, int y) {
+    private void drawFeedLine(FeedLine line, int x, int y, int mouseX, int mouseY) {
         if (line.links.isEmpty()) {
             drawString(fontRenderer, line.text, x, y, 0xFFFFFF);
             return;
@@ -304,7 +323,10 @@ public class GuiNostrFeed extends GuiScreen {
                 x += fontRenderer.getStringWidth(before);
             }
             String label = line.text.substring(link.start, link.end);
-            drawString(fontRenderer, "\u00a7b" + label, x, y, 0xFFFFFF);
+            int linkWidth = fontRenderer.getStringWidth(label);
+            boolean hovered = mouseX >= x && mouseX < x + linkWidth && mouseY >= y && mouseY < y + 9;
+            drawString(fontRenderer, (hovered ? "\u00a7e" : "\u00a7b") + label, x, y, 0xFFFFFF);
+            linkHitboxes.add(new LinkHitbox(x, y, linkWidth, 9, link.entity));
             x += fontRenderer.getStringWidth(label);
             position = link.end;
         }
