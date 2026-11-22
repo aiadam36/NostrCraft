@@ -37,6 +37,14 @@ public class NostrClient implements RelayConnection.Listener {
             return thread;
         }
     });
+    private static final ExecutorService NIP05_EXECUTOR = Executors.newFixedThreadPool(2, new ThreadFactory() {
+        private final AtomicInteger number = new AtomicInteger();
+        @Override public Thread newThread(Runnable task) {
+            Thread thread = new Thread(task, "NostrCraft-NIP05-" + number.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        }
+    });
 
     public static NostrClient get() { return INSTANCE; }
 
@@ -54,7 +62,9 @@ public class NostrClient implements RelayConnection.Listener {
     private static final class Profile {
         final long ts;
         final String name;
-        Profile(long ts, String name) { this.ts = ts; this.name = name; }
+        final String nip05;
+        volatile boolean nip05Verified;
+        Profile(long ts, String name, String nip05) { this.ts = ts; this.name = name; this.nip05 = nip05; }
     }
 
     private final JsonParser parser = new JsonParser();
@@ -381,6 +391,12 @@ public class NostrClient implements RelayConnection.Listener {
         return shortNpub(pubkey);
     }
 
+    /** Returns a verified NIP-05 identifier for UI display, or null until verification succeeds. */
+    public String verifiedNip05(String pubkey) {
+        Profile profile = profiles.get(pubkey);
+        return profile != null && profile.nip05Verified ? profile.nip05 : null;
+    }
+
     public String shortNpub(String pubkey) {
         String s = shortNames.get(pubkey);
         if (s == null) {
@@ -548,10 +564,65 @@ public class NostrClient implements RelayConnection.Listener {
             if (name.isEmpty()) name = str(o, "name");
             name = name.replaceAll("[\\p{Cntrl}\u00a7]", "").trim();
             if (name.length() > 32) name = name.substring(0, 32);
-            if (name.isEmpty()) return;
-            profiles.put(e.pubkey, new Profile(e.createdAt, name));
+            if (name.isEmpty()) name = shortNpub(e.pubkey);
+            String nip05 = str(o, "nip05").trim();
+            Profile profile = new Profile(e.createdAt, name, nip05);
+            profiles.put(e.pubkey, profile);
+            if (isValidNip05(nip05)) verifyNip05(e.pubkey, profile);
             feedVersion++;
         } catch (Exception ignored) { }
+    }
+
+    private static boolean isValidNip05(String identifier) {
+        if (identifier == null || identifier.length() > 320) return false;
+        int at = identifier.indexOf('@');
+        if (at < 0 || at != identifier.lastIndexOf('@')) return false;
+        String local = identifier.substring(0, at);
+        String domain = identifier.substring(at + 1);
+        return local.matches("[a-z0-9._-]+") && !local.startsWith(".") && !local.endsWith(".")
+                && domain.length() <= 253 && domain.matches("(?i)[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?")
+                && !domain.contains("..") && domain.indexOf('.') > 0;
+    }
+
+    private void verifyNip05(final String pubkey, final Profile profile) {
+        NIP05_EXECUTOR.execute(new Runnable() {
+            @Override public void run() {
+                int at = profile.nip05.indexOf('@');
+                String local = profile.nip05.substring(0, at);
+                String domain = profile.nip05.substring(at + 1);
+                HttpURLConnection connection = null;
+                try {
+                    String url = "https://" + domain + "/.well-known/nostr.json?name="
+                            + java.net.URLEncoder.encode(local, "UTF-8");
+                    connection = (HttpURLConnection) new URL(url).openConnection();
+                    connection.setConnectTimeout(5000);
+                    connection.setReadTimeout(5000);
+                    connection.setInstanceFollowRedirects(false);
+                    connection.setRequestProperty("Accept", "application/json");
+                    int code = connection.getResponseCode();
+                    if (code != HttpURLConnection.HTTP_OK) return;
+                    BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8));
+                    StringBuilder body = new StringBuilder();
+                    String line;
+                    while ((line = reader.readLine()) != null && body.length() < 65536) body.append(line);
+                    reader.close();
+                    JsonObject root = parser.parse(body.toString()).getAsJsonObject();
+                    JsonElement namesElement = root.get("names");
+                    if (namesElement == null || !namesElement.isJsonObject()) return;
+                    JsonElement mappedKey = namesElement.getAsJsonObject().get(local);
+                    if (mappedKey == null || !mappedKey.isJsonPrimitive() || !mappedKey.getAsJsonPrimitive().isString()) return;
+                    if (!pubkey.equals(mappedKey.getAsString())) return;
+                    if (profiles.get(pubkey) == profile) {
+                        profile.nip05Verified = true;
+                        feedVersion++;
+                    }
+                } catch (Exception ignored) {
+                    // Unreachable, invalid, or malformed NIP-05 endpoints remain unverified.
+                } finally {
+                    if (connection != null) connection.disconnect();
+                }
+            }
+        });
     }
 
     private static String str(JsonObject o, String key) {

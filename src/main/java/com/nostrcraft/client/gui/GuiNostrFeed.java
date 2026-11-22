@@ -152,7 +152,8 @@ public class GuiNostrFeed extends GuiScreen {
                 ? "\u00a77Searching recent relay history..."
                 : "\u00a77Waiting for notes from relays...");
         for (NostrEvent e : feed) {
-            lines.add("\u00a7b" + nc.displayName(e.pubkey) + " \u00a78- \u00a77" + Fmt.ago(e.createdAt));
+            String verified = nc.verifiedNip05(e.pubkey) == null ? "" : " \u00a7a[NIP-05]";
+            lines.add("\u00a7b" + nc.displayName(e.pubkey) + verified + " \u00a78- \u00a77" + Fmt.ago(e.createdAt));
             int n = 0;
             for (Object l : fontRenderer.listFormattedStringToWidth(Fmt.clean(e.content, 600), pw - 8)) {
                 if (n++ >= 12) { lines.add("\u00a78..."); break; }
