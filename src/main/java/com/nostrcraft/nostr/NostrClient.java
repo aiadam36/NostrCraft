@@ -23,6 +23,11 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Runs entirely on the CLIENT: your secret key never touches the server.
  */
 public class NostrClient implements RelayConnection.Listener {
+    public interface Nip05ResolverListener {
+        void onResolved(String pubkey);
+        void onError(String message);
+    }
+
     public interface SubscriptionListener {
         void onEvent(NostrEvent event, String relayUrl);
         default void onEose(String relayUrl) { }
@@ -67,6 +72,21 @@ public class NostrClient implements RelayConnection.Listener {
         Profile(long ts, String name, String nip05) { this.ts = ts; this.name = name; this.nip05 = nip05; }
     }
 
+    private static final class SearchSpec {
+        final String text;
+        final String author;
+        final String nip05;
+        final Integer kind;
+        final String tag;
+        final Long since;
+        final Long until;
+        SearchSpec(String text, String author, String nip05, Integer kind, String tag, Long since, Long until) {
+            this.text = text; this.author = author; this.nip05 = nip05;
+            this.kind = kind; this.tag = tag; this.since = since; this.until = until;
+        }
+        SearchSpec withAuthor(String pubkey) { return new SearchSpec(text, pubkey, null, kind, tag, since, until); }
+    }
+
     private final JsonParser parser = new JsonParser();
     private File configFile;
     private volatile NostrKeys keys;
@@ -83,6 +103,7 @@ public class NostrClient implements RelayConnection.Listener {
     private final List<NostrEvent> searchResults = new ArrayList<NostrEvent>(); // guarded by 'searchResults'
     private final Set<String> searchSeen = new HashSet<String>();
     private volatile String searchQuery = "";
+    private volatile SearchSpec searchSpec = new SearchSpec("", null, null, null, null, null, null);
     private volatile boolean searchFollowingOnly;
     private volatile String searchSubscription = "";
     private final Map<String, Profile> profiles = new ConcurrentHashMap<String, Profile>();
@@ -339,19 +360,95 @@ public class NostrClient implements RelayConnection.Listener {
     public void search(String query, boolean followingOnly) {
         String clean = query == null ? "" : query.trim();
         if (clean.length() > 128) throw new IllegalArgumentException("Search is limited to 128 characters");
+        SearchSpec spec = parseSearchSpec(clean);
         closeSearch();
         searchQuery = clean;
+        searchSpec = spec;
         searchFollowingOnly = followingOnly;
         searchSubscription = clean.isEmpty() ? "" : "nc-search-" + searchCounter.incrementAndGet();
         synchronized (searchResults) { searchResults.clear(); searchSeen.clear(); }
         feedVersion++;
         if (clean.isEmpty()) return;
-        if (followingOnly && following.isEmpty()) {
+        if (followingOnly && following.isEmpty() && spec.author == null && spec.nip05 == null) {
             status = "No followed profiles to search";
             return;
         }
-        for (RelayConnection rc : openRelays()) discoverSearchSupport(rc, searchSubscription);
-        status = "Searching relays for: " + clean;
+        if (spec.nip05 != null) {
+            final String activeSubscription = searchSubscription;
+            status = "Resolving NIP-05: " + spec.nip05;
+            resolveNip05(spec.nip05, new Nip05ResolverListener() {
+                @Override public void onResolved(String pubkey) {
+                    if (!activeSubscription.equals(searchSubscription)) return;
+                    searchSpec = searchSpec.withAuthor(pubkey);
+                    startSearch(activeSubscription);
+                }
+                @Override public void onError(String message) {
+                    if (activeSubscription.equals(searchSubscription)) status = "NIP-05 lookup failed: " + message;
+                }
+            });
+            return;
+        }
+        startSearch(searchSubscription);
+    }
+
+    private void startSearch(String subscription) {
+        if (!subscription.equals(searchSubscription)) return;
+        for (RelayConnection rc : openRelays()) discoverSearchSupport(rc, subscription);
+        status = "Searching relays for: " + searchQuery;
+    }
+
+    private static SearchSpec parseSearchSpec(String query) {
+        StringBuilder text = new StringBuilder();
+        String author = null, nip05 = null, tag = null;
+        Integer kind = null;
+        Long since = null, until = null;
+        for (String token : query.split("\\s+")) {
+            if (token.startsWith("kind:")) {
+                if (kind != null) throw new IllegalArgumentException("Use only one kind: filter");
+                try { kind = Integer.valueOf(token.substring(5)); }
+                catch (Exception e) { throw new IllegalArgumentException("kind: must be between 0 and 65535"); }
+                if (kind.intValue() < 0 || kind.intValue() > 65535) throw new IllegalArgumentException("kind: must be between 0 and 65535");
+            } else if (token.startsWith("from:")) {
+                if (author != null || nip05 != null) throw new IllegalArgumentException("Use only one from: filter");
+                String value = token.substring(5);
+                Nip19.Entity entity = Nip19.parse(value);
+                if (entity != null && (entity.type == Nip19.Type.NPUB || entity.type == Nip19.Type.NPROFILE)) author = entity.pubkey;
+                else if (Hex.isHex(value, 64)) author = value.toLowerCase(Locale.ROOT);
+                else if (isValidNip05(value)) nip05 = value;
+                else throw new IllegalArgumentException("from: must be a pubkey, npub, or NIP-05 identifier");
+            } else if (token.startsWith("since:")) {
+                if (since != null) throw new IllegalArgumentException("Use only one since: filter");
+                since = parseTime(token.substring(6));
+            } else if (token.startsWith("until:")) {
+                if (until != null) throw new IllegalArgumentException("Use only one until: filter");
+                until = parseTime(token.substring(6));
+            } else if (token.startsWith("#")) {
+                if (tag != null) throw new IllegalArgumentException("Use only one #tag filter");
+                tag = token.substring(1);
+                if (tag.isEmpty()) throw new IllegalArgumentException("Tag filter cannot be empty");
+            } else {
+                if (text.length() > 0) text.append(' ');
+                text.append(token);
+            }
+        }
+        if (since != null && until != null && since.longValue() > until.longValue())
+            throw new IllegalArgumentException("since: must be earlier than until:");
+        return new SearchSpec(text.toString(), author, nip05, kind, tag, since, until);
+    }
+
+    private static Long parseTime(String value) {
+        try {
+            if (value.matches("[0-9]+")) return Long.valueOf(value);
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("([1-9][0-9]*)([mhdw])").matcher(value);
+            if (!m.matches()) throw new NumberFormatException();
+            long amount = Long.parseLong(m.group(1));
+            long unit = "m".equals(m.group(2)) ? 60L : "h".equals(m.group(2)) ? 3600L
+                    : "d".equals(m.group(2)) ? 86400L : 604800L;
+            long seconds = Math.multiplyExact(amount, unit);
+            return Long.valueOf(Math.max(0L, System.currentTimeMillis() / 1000L - seconds));
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Time filters use Unix seconds or durations like 2h, 7d, or 1w");
+        }
     }
 
     private void closeSearch() {
@@ -408,16 +505,29 @@ public class NostrClient implements RelayConnection.Listener {
     }
 
     private void sendSearch(RelayConnection c, boolean supportsNip50) {
-        String query = searchQuery;
-        if (query.isEmpty()) return;
+        SearchSpec spec = searchSpec;
+        if (searchQuery.isEmpty()) return;
         JsonObject filter = new JsonObject();
-        JsonArray kinds = new JsonArray(); kinds.add(new JsonPrimitive(1));
+        JsonArray kinds = new JsonArray(); kinds.add(new JsonPrimitive(spec.kind == null ? 1 : spec.kind.intValue()));
         filter.add("kinds", kinds);
-        if (supportsNip50) filter.addProperty("search", query);
+        if (supportsNip50 && !spec.text.isEmpty()) filter.addProperty("search", spec.text);
         filter.addProperty("limit", 200);
+        if (spec.author != null) {
+            JsonArray authors = new JsonArray(); authors.add(new JsonPrimitive(spec.author));
+            filter.add("authors", authors);
+        }
+        if (spec.tag != null) {
+            JsonArray tags = new JsonArray(); tags.add(new JsonPrimitive(spec.tag));
+            filter.add("#t", tags);
+        }
+        if (spec.since != null) filter.addProperty("since", spec.since.longValue());
+        if (spec.until != null) filter.addProperty("until", spec.until.longValue());
         if (searchFollowingOnly) {
             JsonArray authors = new JsonArray();
-            synchronized (following) { for (String pubkey : following) authors.add(new JsonPrimitive(pubkey)); }
+            synchronized (following) {
+                for (String pubkey : following)
+                    if (spec.author == null || spec.author.equals(pubkey)) authors.add(new JsonPrimitive(pubkey));
+            }
             if (authors.size() == 0) {
                 status = "No followed profiles to search";
                 return;
@@ -537,35 +647,46 @@ public class NostrClient implements RelayConnection.Listener {
             if (e.kind == NostrEvent.KIND_METADATA) handleProfile(e);
             return;
         }
-        if (e.kind != NostrEvent.KIND_TEXT_NOTE && e.kind != NostrEvent.KIND_METADATA && e.kind != NostrEvent.KIND_CONTACT_LIST) return;
+        boolean searchResult = !searchSubscription.isEmpty() && searchSubscription.equals(subscription);
 
         if (e.kind == NostrEvent.KIND_METADATA) {
             handleProfile(e);
+            if (searchResult && searchSpec.kind != null && searchSpec.kind.intValue() == NostrEvent.KIND_METADATA) {
+                Boolean supportsNip50 = searchSupport.get(relay.url);
+                if (supportsNip50 == null || supportsNip50.booleanValue() || matchesSearch(e.content, searchSpec)) addToSearch(e);
+            }
             return;
         }
         if (e.kind == NostrEvent.KIND_CONTACT_LIST) {
+            if (searchResult) { addToSearch(e); return; }
             NostrKeys account = keys;
             if (account == null || !account.getPubHex().equals(e.pubkey)) return;
             handleFollowList(e);
             return;
         }
+        if (searchResult) {
+            SearchSpec spec = searchSpec;
+            if (e.kind == NostrEvent.KIND_TEXT_NOTE && (HIDE_REPLIES && e.hasTag("e")
+                    || e.createdAt > System.currentTimeMillis() / 1000L + 600 || e.content.trim().isEmpty())) return;
+            Boolean supportsNip50 = searchSupport.get(relay.url);
+            if (supportsNip50 != null && !supportsNip50.booleanValue() && !matchesSearch(e.content, spec)) return;
+            addToSearch(e);
+            return;
+        }
+        if (e.kind != NostrEvent.KIND_TEXT_NOTE) return;
         if (HIDE_REPLIES && e.hasTag("e")) return;
         if (e.createdAt > System.currentTimeMillis() / 1000L + 600) return; // ignore far-future spam
         if (e.content.trim().isEmpty()) return;
-        if (!searchSubscription.isEmpty() && searchSubscription.equals(subscription)) {
-            Boolean supportsNip50 = searchSupport.get(relay.url);
-            if (supportsNip50 != null && !supportsNip50.booleanValue() && !matchesSearch(e.content, searchQuery)) return;
-            addToSearch(e);
-        }
-        else addToFeed(e);
+        addToFeed(e);
         queueMeta(e.pubkey);
     }
 
-    private static boolean matchesSearch(String content, String query) {
+    private static boolean matchesSearch(String content, SearchSpec spec) {
+        if (spec.text.isEmpty()) return true;
         String text = content.toLowerCase(Locale.ROOT);
-        String[] terms = query.toLowerCase(Locale.ROOT).trim().split("\\s+");
+        String[] terms = spec.text.toLowerCase(Locale.ROOT).trim().split("\\s+");
         for (String term : terms) if (!term.isEmpty() && !text.contains(term)) return false;
-        return terms.length > 0;
+        return true;
     }
 
     private void addToSearch(NostrEvent ev) {
@@ -631,6 +752,85 @@ public class NostrClient implements RelayConnection.Listener {
         return local.matches("[a-z0-9._-]+") && !local.startsWith(".") && !local.endsWith(".")
                 && domain.length() <= 253 && domain.matches("(?i)[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?")
                 && !domain.contains("..") && domain.indexOf('.') > 0;
+    }
+
+    /** Resolves a NIP-05 identifier and confirms it against the author's kind-0 profile event. */
+    public void resolveNip05(final String identifier, final Nip05ResolverListener listener) {
+        if (listener == null) throw new IllegalArgumentException("Listener is required");
+        if (!isValidNip05(identifier)) {
+            listener.onError("Invalid NIP-05 identifier");
+            return;
+        }
+        NIP05_EXECUTOR.execute(new Runnable() {
+            @Override public void run() {
+                final String pubkey;
+                try { pubkey = lookupNip05(identifier); }
+                catch (Exception e) { listener.onError("Could not read the domain mapping"); return; }
+                if (pubkey == null) { listener.onError("The name is not mapped to a public key"); return; }
+
+                ensureStarted();
+                final String subscription = "nc-nip05-" + entityRequestCounter.incrementAndGet();
+                final AtomicBoolean finished = new AtomicBoolean();
+                final String expected = normalizeNip05(identifier);
+                subscribe(subscription, new SubscriptionListener() {
+                    @Override public void onEvent(NostrEvent event, String relayUrl) {
+                        if (event.kind != NostrEvent.KIND_METADATA || !pubkey.equals(event.pubkey)) return;
+                        try {
+                            String actual = str(parser.parse(event.content).getAsJsonObject(), "nip05").trim();
+                            if (!expected.equals(normalizeNip05(actual))) return;
+                            if (finished.compareAndSet(false, true)) {
+                                closeSubscription(subscription);
+                                listener.onResolved(pubkey);
+                            }
+                        } catch (Exception ignored) { }
+                    }
+                }, new NostrFilter().kinds(NostrEvent.KIND_METADATA).authors(pubkey).limit(1));
+                RelayConnection.GROUP.schedule(new Runnable() {
+                    @Override public void run() {
+                        if (finished.compareAndSet(false, true)) {
+                            closeSubscription(subscription);
+                            listener.onError("No matching profile was found on connected relays");
+                        }
+                    }
+                }, 12, TimeUnit.SECONDS);
+            }
+        });
+    }
+
+    private String lookupNip05(String identifier) throws Exception {
+        int at = identifier.indexOf('@');
+        String local = identifier.substring(0, at);
+        String domain = identifier.substring(at + 1);
+        HttpURLConnection connection = null;
+        try {
+            String endpoint = "https://" + domain + "/.well-known/nostr.json?name="
+                    + java.net.URLEncoder.encode(local, "UTF-8");
+            connection = (HttpURLConnection) new URL(endpoint).openConnection();
+            connection.setConnectTimeout(6000);
+            connection.setReadTimeout(6000);
+            connection.setInstanceFollowRedirects(false);
+            connection.setRequestProperty("Accept", "application/json");
+            if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) return null;
+            BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8));
+            StringBuilder body = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null && body.length() < 65536) body.append(line);
+            reader.close();
+            JsonObject root = parser.parse(body.toString()).getAsJsonObject();
+            JsonElement names = root.get("names");
+            if (names == null || !names.isJsonObject()) return null;
+            JsonElement key = names.getAsJsonObject().get(local);
+            if (key == null || !key.isJsonPrimitive() || !key.getAsJsonPrimitive().isString()) return null;
+            String pubkey = key.getAsString();
+            return Hex.isHex(pubkey, 64) && pubkey.equals(pubkey.toLowerCase(Locale.ROOT)) ? pubkey : null;
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
+    }
+
+    private static String normalizeNip05(String identifier) {
+        int at = identifier.indexOf('@');
+        return at < 0 ? identifier : identifier.substring(0, at) + "@" + identifier.substring(at + 1).toLowerCase(Locale.ROOT);
     }
 
     private void verifyNip05(final String pubkey, final Profile profile) {

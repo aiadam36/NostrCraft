@@ -4,6 +4,8 @@ import com.nostrcraft.client.Fmt;
 import com.nostrcraft.nostr.NostrClient;
 import com.nostrcraft.nostr.NostrEvent;
 import com.nostrcraft.nostr.Nip19;
+import com.nostrcraft.nostr.Bech32;
+import com.nostrcraft.nostr.Hex;
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.GuiTextField;
@@ -57,6 +59,7 @@ public class GuiNostrFeed extends GuiScreen {
     private int scroll;
     private int builtVersion = -1, builtWidth = -1;
     private long builtAt;
+    private int searchActionToken;
     private int px, pw, feedTop, feedBottom;
 
     @Override
@@ -91,6 +94,7 @@ public class GuiNostrFeed extends GuiScreen {
     @Override
     public void onGuiClosed() {
         Keyboard.enableRepeatEvents(false);
+        searchActionToken++;
     }
 
     @Override
@@ -129,6 +133,41 @@ public class GuiNostrFeed extends GuiScreen {
     private void runSearch() {
         try {
             String query = searchBox.getText().trim();
+            final int actionToken = ++searchActionToken;
+            if (query.matches("(?i)(?:nostr:)?nsec1[0-9a-z]+")) {
+                nc.setStatus("\u00a7cPrivate keys cannot be searched");
+                return;
+            }
+            Nip19.Entity reference = Nip19.parse(query);
+            if (reference != null) {
+                nc.search("", followingFeed);
+                mc.displayGuiScreen(new GuiNostrEntity(this, reference));
+                return;
+            }
+            if (query.indexOf('@') > 0 && query.indexOf(' ') < 0) {
+                nc.search("", followingFeed);
+                nc.setStatus("Resolving NIP-05: " + query);
+                nc.resolveNip05(query, new NostrClient.Nip05ResolverListener() {
+                    @Override public void onResolved(final String pubkey) {
+                        mc.addScheduledTask(new Runnable() {
+                            @Override public void run() {
+                                if (mc.currentScreen != GuiNostrFeed.this || actionToken != searchActionToken) return;
+                                Nip19.Entity profile = Nip19.parse(Bech32.encode("npub", Hex.decode(pubkey)));
+                                if (profile != null) mc.displayGuiScreen(new GuiNostrEntity(GuiNostrFeed.this, profile));
+                            }
+                        });
+                    }
+                    @Override public void onError(final String message) {
+                        mc.addScheduledTask(new Runnable() {
+                            @Override public void run() {
+                                if (mc.currentScreen == GuiNostrFeed.this && actionToken == searchActionToken)
+                                    nc.setStatus("NIP-05 lookup failed: " + message);
+                            }
+                        });
+                    }
+                });
+                return;
+            }
             if (nc.isSearching() && query.equals(nc.getSearchQuery())) {
                 nc.search("", followingFeed);
             } else {
@@ -213,7 +252,7 @@ public class GuiNostrFeed extends GuiScreen {
         drawString(fontRenderer, who, px, 20, 0xFFFFFF);
         searchBox.drawTextBox();
         if (searchBox.getText().isEmpty() && !searchBox.isFocused())
-            drawString(fontRenderer, "\u00a78Search recent notes (NIP-50 where available)", px + 4, 39, 0xFFFFFF);
+            drawString(fontRenderer, "\u00a78Text, npub, name@domain, or filters", px + 4, 39, 0xFFFFFF);
 
         int visible = (feedBottom - feedTop) / 10;
         int max = Math.max(0, lines.size() - visible);
