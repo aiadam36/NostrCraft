@@ -66,7 +66,7 @@ public final class Nip89 {
         Handler handler = new Handler(event);
         for (List<String> tag : event.tags) {
             if (tag.size() < 2 || !("web".equals(tag.get(0)) || "desktop".equals(tag.get(0)))) continue;
-            String url = tag.get(1).replace("bech32", "");
+            String url = tag.get(1);
             if (safeHttpUrl(url)) handler.urls.add(url);
         }
         return handler;

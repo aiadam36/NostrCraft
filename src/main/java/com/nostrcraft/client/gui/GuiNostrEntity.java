@@ -6,6 +6,7 @@ import com.nostrcraft.nostr.Hex;
 import com.nostrcraft.nostr.Nip19;
 import com.nostrcraft.nostr.NostrClient;
 import com.nostrcraft.nostr.NostrEvent;
+import com.nostrcraft.nostr.Nip89;
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
 import org.lwjgl.input.Keyboard;
@@ -19,6 +20,7 @@ import java.util.List;
 /** In-game detail view opened from an NIP-19 reference in the feed. */
 public class GuiNostrEntity extends GuiScreen {
     private static final int BTN_BACK = 0;
+    private static final int BTN_DISCOVER = 1;
 
     private final GuiScreen parent;
     private final Nip19.Entity entity;
@@ -27,6 +29,8 @@ public class GuiNostrEntity extends GuiScreen {
     private volatile boolean loaded;
     private String subscription;
     private String error;
+    private final List<Nip89.Handler> handlers = new ArrayList<Nip89.Handler>();
+    private boolean discovering;
 
     public GuiNostrEntity(GuiScreen parent, Nip19.Entity entity) {
         this.parent = parent;
@@ -37,6 +41,7 @@ public class GuiNostrEntity extends GuiScreen {
     public void initGui() {
         buttonList.clear();
         addButton(new GuiButton(BTN_BACK, width / 2 - 60, height - 30, 120, 20, "Back"));
+        addButton(new GuiButton(BTN_DISCOVER, width / 2 - 160, height - 30, 95, 20, "Find an app"));
         if (subscription != null) nc.closeSubscription(subscription);
         loaded = false;
         error = null;
@@ -69,6 +74,52 @@ public class GuiNostrEntity extends GuiScreen {
     @Override
     protected void actionPerformed(GuiButton button) throws IOException {
         if (button.id == BTN_BACK) mc.displayGuiScreen(parent);
+        else if (button.id == BTN_DISCOVER) {
+            NostrEvent target = currentTarget();
+            if (target != null) discover(target.kind);
+        }
+        else if (button.id >= 100 && button.id < 100 + handlers.size()) openHandler(button.id - 100);
+    }
+
+    private void discover(final int kind) {
+        if (discovering) return;
+        discovering = true;
+        nc.discoverHandlers(kind, new NostrClient.Nip89Listener() {
+            @Override public void onHandlers(final List<Nip89.Handler> found) {
+                mc.addScheduledTask(new Runnable() {
+                    @Override public void run() {
+                        if (mc.currentScreen != GuiNostrEntity.this) return;
+                        handlers.clear(); handlers.addAll(found); discovering = false;
+                        buttonList.removeIf(b -> b.id >= 100);
+                        int y = height - 30;
+                        for (int i = 0; i < handlers.size() && i < 3; i++)
+                            addButton(new GuiButton(100 + i, width / 2 - 55 + (i * 2), y - 24 * (i + 1), 110, 20,
+                                    handlers.get(i).name.length() > 16 ? handlers.get(i).name.substring(0, 16) : handlers.get(i).name));
+                    }
+                });
+            }
+        });
+    }
+
+    private NostrEvent currentTarget() {
+        for (NostrEvent event : snapshot()) if (matchesTarget(event)) return event;
+        return null;
+    }
+
+    private void openHandler(int index) {
+        if (index < 0 || index >= handlers.size()) return;
+        Nip89.Handler handler = handlers.get(index);
+        if (handler.urls.isEmpty()) { error = "Handler has no supported web URL"; return; }
+        String value = handler.urls.get(0);
+        if (value.contains("bech32")) {
+            if (entity.eventId == null) { error = "This handler needs an event reference"; return; }
+            value = value.replace("bech32", Bech32.encode("note", Hex.decode(entity.eventId)));
+        }
+        if (!Nip89.safeHttpUrl(value)) { error = "Handler URL is invalid"; return; }
+        try {
+            if (java.awt.Desktop.isDesktopSupported()) java.awt.Desktop.getDesktop().browse(new java.net.URI(value));
+            else error = "Desktop link opening is unavailable";
+        } catch (Exception e) { error = "Could not open handler URL"; }
     }
 
     @Override
@@ -160,6 +211,9 @@ public class GuiNostrEntity extends GuiScreen {
         drawString(fontRenderer, "\u00a78Kind " + target.kind + " - " + Fmt.ago(target.createdAt), left, 46, 0xFFFFFF);
         drawString(fontRenderer, "\u00a78" + target.id.substring(0, 16) + "...", left, 58, 0xFFFFFF);
         drawWrapped(Fmt.clean(target.content, 4000), left, 76, right - left);
+        if (target.kind != NostrEvent.KIND_TEXT_NOTE && !target.hasTag("alt"))
+            drawString(fontRenderer, "\u00a77Unsupported event kind; use Find an app to discover a handler", left, height - 60, 0xFFFFFF);
+        if (discovering) drawString(fontRenderer, "\u00a77Finding recommended apps...", left, height - 48, 0xFFFFFF);
     }
 
     private boolean matchesTarget(NostrEvent event) {
