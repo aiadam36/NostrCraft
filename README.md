@@ -40,7 +40,26 @@ All commands were client-side only, they were never sent to the server
 
 > Be careful with `/nostr export`, it prints your nsec
 
-The feed search accepts note text, NIP-19 profile/event identifiers, and NIP-05 identifiers such as `name@example.com`. Combine text with filters such as `from:npub1... kind:1 since:7d #nostr`. `since:` and `until:` accept Unix seconds or relative durations such as `2h` and `7d`.
+## Search bar
+
+Search for note text or enter a NIP-19 profile/event identifier or a NIP-05 identifier such as `name@example.com`
+
+> [!TIP]
+> Add filters to narrow the results; filters can be combined with text
+
+| Search term         | What it matches                                         | Example             |
+|---------------------|---------------------------------------------------------|---------------------|
+| Text                | Note content                                            | `hello nostr`       |
+| NIP-19 identifier   | A profile or event                                      | `npub1...`          |
+| NIP-05 identifier   | A verified name and domain                              | `name@example.com`  |
+| `from:`             | Notes by an author                                      | `from:npub1...`     |
+| `kind:`             | A Nostr event kind                                      | `kind:1`            |
+| `#tag`              | Notes with a tag                                        | `#nostr`            |
+| `since:` / `until:` | A time range, using Unix seconds or a relative duration | `since:7d until:2h` |
+
+For example, `nostr from:npub1... kind:1 since:7d #nostr` searches for matching text and applies all the listed filters
+
+> Relative durations include `2h` (two hours) and `7d` (seven days)
 
 ## Crafting recipe
 
