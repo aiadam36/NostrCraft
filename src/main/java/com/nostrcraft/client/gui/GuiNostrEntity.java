@@ -98,8 +98,18 @@ public class GuiNostrEntity extends GuiScreen {
         try { npub = Bech32.encode("npub", Hex.decode(entity.pubkey)); }
         catch (Exception e) { npub = entity.pubkey; }
         drawString(fontRenderer, "\u00a77" + Fmt.clean(npub, 96), left, 44, 0xFFFFFF);
+        ProfileBannerCache.Banner banner = ProfileBannerCache.get(nc.profileBanner(entity.pubkey));
+        int detailsY = 56;
+        if (banner != null) {
+            float scale = Math.min((right - left) / (float) banner.width, 88f / banner.height);
+            int bannerWidth = Math.max(1, Math.round(banner.width * scale));
+            int bannerHeight = Math.max(1, Math.round(banner.height * scale));
+            mc.getTextureManager().bindTexture(banner.texture);
+            drawModalRectWithCustomSizedTexture(left, detailsY, 0, 0, bannerWidth, bannerHeight, banner.width, banner.height);
+            detailsY += bannerHeight + 8;
+        }
         String nip05 = nc.verifiedNip05(entity.pubkey);
-        int y = 56;
+        int y = detailsY;
         if (nip05 != null) {
             drawString(fontRenderer, "\u00a7aVerified NIP-05: " + Fmt.clean(nip05, 80), left, y, 0xFFFFFF);
             y += 12;

@@ -568,6 +568,11 @@ public class NostrClient implements RelayConnection.Listener {
         return profile == null || profile.website.isEmpty() ? null : profile.website;
     }
 
+    public String profileBanner(String pubkey) {
+        Profile profile = profiles.get(pubkey);
+        return profile == null || profile.banner.isEmpty() ? null : profile.banner;
+    }
+
     public Boolean profileIsBot(String pubkey) {
         Profile profile = profiles.get(pubkey);
         return profile == null ? null : profile.bot;
