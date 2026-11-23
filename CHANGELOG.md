@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0
+- Added NIP-05 verification badges to the feed and Nostr Screen
+- Made NIP-19 references in notes readable and clickable, with in-game views for profiles, notes, events, and addressable events
+
 ## 0.2.0
 - Added a Following feed based on the account's NIP-02 contact list
 - Added note search, using NIP-50 on supporting relays and local matching on other relays
