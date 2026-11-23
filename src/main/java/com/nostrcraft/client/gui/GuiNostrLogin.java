@@ -10,7 +10,7 @@ import java.io.IOException;
 
 /** Log in with an nsec / hex key, generate a fresh identity, or log out. */
 public class GuiNostrLogin extends GuiScreen {
-    private static final int BTN_LOGIN = 0, BTN_GEN = 1, BTN_LOGOUT = 2, BTN_BACK = 3;
+    private static final int BTN_LOGIN = 0, BTN_GEN = 1, BTN_LOGOUT = 2, BTN_BACK = 3, BTN_CLIENT_TAG = 4;
 
     private final GuiScreen parent;
     private final NostrClient nc = NostrClient.get();
@@ -36,6 +36,8 @@ public class GuiNostrLogin extends GuiScreen {
         GuiButton logout = addButton(new GuiButton(BTN_LOGOUT, width / 2 - 100, y + 76, 200, 20, "Logout"));
         logout.enabled = nc.isLoggedIn();
         addButton(new GuiButton(BTN_BACK, width / 2 - 100, y + 104, 200, 20, "Back"));
+        addButton(new GuiButton(BTN_CLIENT_TAG, width / 2 - 100, y + 128, 200, 20,
+                "NIP-89 client tag: " + (nc.isClientTagEnabled() ? "ON" : "OFF")));
     }
 
     @Override
@@ -58,6 +60,10 @@ public class GuiNostrLogin extends GuiScreen {
             case BTN_LOGOUT:
                 nc.logout();
                 message = "\u00a77Logged out";
+                break;
+            case BTN_CLIENT_TAG:
+                nc.setClientTagEnabled(!nc.isClientTagEnabled());
+                message = "\u00a77NIP-89 client tag " + (nc.isClientTagEnabled() ? "enabled" : "disabled");
                 break;
             case BTN_BACK: mc.displayGuiScreen(parent); break;
         }
@@ -103,7 +109,7 @@ public class GuiNostrLogin extends GuiScreen {
         drawCenteredString(fontRenderer, line, width / 2, y - 32, 0xFFFFFF);
         drawCenteredString(fontRenderer, "\u00a78Paste your nsec1... (or 64-char hex) key below", width / 2, y - 14, 0xFFFFFF);
         input.drawTextBox();
-        drawCenteredString(fontRenderer, message, width / 2, y + 130, 0xFFFFFF);
+        drawCenteredString(fontRenderer, message, width / 2, y + 158, 0xFFFFFF);
         drawCenteredString(fontRenderer, "\u00a78Keys stay on your computer (config/nostrcraft.json), never sent to servers", width / 2, height - 14, 0xFFFFFF);
         super.drawScreen(mx, my, pt);
     }

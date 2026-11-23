@@ -109,6 +109,7 @@ public class NostrClient implements RelayConnection.Listener {
     private final JsonParser parser = new JsonParser();
     private File configFile;
     private volatile NostrKeys keys;
+    private volatile boolean clientTagEnabled;
     private volatile long followListCreatedAt;
 
     private final List<String> relayUrls = new CopyOnWriteArrayList<String>();
@@ -184,6 +185,8 @@ public class NostrClient implements RelayConnection.Listener {
     public boolean isLoggedIn() { return keys != null; }
     public String getNpub() { return keys == null ? null : keys.getNpub(); }
     public String getNsec() { return keys == null ? null : keys.getNsec(); }
+    public boolean isClientTagEnabled() { return clientTagEnabled; }
+    public void setClientTagEnabled(boolean enabled) { clientTagEnabled = enabled; save(); }
 
     public void login(String input) {
         NostrKeys k = NostrKeys.parse(input); // throws IllegalArgumentException on bad input
@@ -226,7 +229,20 @@ public class NostrClient implements RelayConnection.Listener {
         List<RelayConnection> open = openRelays();
         if (open.isEmpty()) throw new IllegalStateException("No relay connected yet");
 
-        NostrEvent ev = NostrEvent.create(k, NostrEvent.KIND_TEXT_NOTE, new ArrayList<List<String>>(), content);
+        List<List<String>> tags = new ArrayList<List<String>>();
+        if (clientTagEnabled) {
+            String address = NostrEvent.KIND_APP_HANDLER + ":" + k.getPubHex() + ":nostrcraft";
+            List<List<String>> descriptorTags = new ArrayList<List<String>>();
+            descriptorTags.add(Arrays.asList("d", "nostrcraft"));
+            descriptorTags.add(Arrays.asList("k", "0"));
+            descriptorTags.add(Arrays.asList("k", "1"));
+            descriptorTags.add(Arrays.asList("k", "3"));
+            NostrEvent descriptor = NostrEvent.create(k, NostrEvent.KIND_APP_HANDLER, descriptorTags,
+                    "{\"name\":\"NostrCraft\",\"about\":\"Nostr client inside Minecraft\"}");
+            publishEvent(descriptor);
+            tags.add(Arrays.asList("client", "NostrCraft", address, relayUrls.isEmpty() ? "" : relayUrls.get(0)));
+        }
+        NostrEvent ev = NostrEvent.create(k, NostrEvent.KIND_TEXT_NOTE, tags, content);
         publishEvent(ev);
     }
 
@@ -1051,6 +1067,7 @@ public class NostrClient implements RelayConnection.Listener {
                 JsonObject o = parser.parse(json).getAsJsonObject();
                 if (o.has("secretKey") && !o.get("secretKey").isJsonNull())
                     keys = NostrKeys.fromSecret(Hex.decode(o.get("secretKey").getAsString()));
+                if (o.has("nip89ClientTag")) clientTagEnabled = o.get("nip89ClientTag").getAsBoolean();
                 if (o.has("relays"))
                     for (JsonElement e : o.getAsJsonArray("relays")) relayUrls.add(e.getAsString());
             }
@@ -1066,6 +1083,7 @@ public class NostrClient implements RelayConnection.Listener {
         try {
             JsonObject o = new JsonObject();
             o.add("secretKey", keys == null ? JsonNull.INSTANCE : new JsonPrimitive(keys.getSecretHex()));
+            o.addProperty("nip89ClientTag", clientTagEnabled);
             JsonArray rs = new JsonArray();
             for (String r : relayUrls) rs.add(new JsonPrimitive(r));
             o.add("relays", rs);
