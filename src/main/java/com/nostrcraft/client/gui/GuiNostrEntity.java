@@ -226,7 +226,12 @@ public class GuiNostrEntity extends GuiScreen {
         drawString(fontRenderer, "\u00a7b" + Fmt.clean(nc.displayName(target.pubkey), 48), left, 34, 0xFFFFFF);
         drawString(fontRenderer, "\u00a78Kind " + target.kind + " - " + Fmt.ago(target.createdAt), left, 46, 0xFFFFFF);
         drawString(fontRenderer, "\u00a78" + target.id.substring(0, 16) + "...", left, 58, 0xFFFFFF);
-        drawWrapped(Fmt.clean(target.content, 4000), left, 76, right - left);
+        String body = target.content;
+        if (target.kind != NostrEvent.KIND_TEXT_NOTE) {
+            String alt = Nip89.tagValue(target, "alt");
+            if (alt != null && !alt.trim().isEmpty()) body = alt;
+        }
+        drawWrapped(Fmt.clean(body, 4000), left, 76, right - left);
         if (target.kind != NostrEvent.KIND_TEXT_NOTE && !target.hasTag("alt"))
             drawString(fontRenderer, "\u00a77Unsupported event kind; use Find an app to discover a handler", left, height - 60, 0xFFFFFF);
         if (discovering) drawString(fontRenderer, "\u00a77Finding recommended apps...", left, height - 48, 0xFFFFFF);

@@ -380,7 +380,7 @@ public class NostrClient implements RelayConnection.Listener {
                     NostrFilter f = new NostrFilter().kinds(NostrEvent.KIND_APP_HANDLER).authors(address.pubkey).tag('d', address.identifier).limit(1);
                     subscribe(handlerSub, new SubscriptionListener() {
                         @Override public void onEvent(NostrEvent event, String relayUrl) {
-                            Nip89.Handler handler = Nip89.parseHandler(event);
+                            Nip89.Handler handler = Nip89.parseHandler(event, kind);
                             if (handler != null && !handlers.contains(handler)) handlers.add(handler);
                         }
                         @Override public void onEose(String relayUrl) {

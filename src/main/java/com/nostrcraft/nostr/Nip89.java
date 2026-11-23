@@ -56,11 +56,11 @@ public final class Nip89 {
         return result;
     }
 
-    public static Handler parseHandler(NostrEvent event) {
+    public static Handler parseHandler(NostrEvent event, int requiredKind) {
         if (event == null || event.kind != NostrEvent.KIND_APP_HANDLER) return null;
         boolean hasKind = false;
         for (List<String> tag : event.tags) if (tag.size() > 1 && "k".equals(tag.get(0))) {
-            try { Integer.parseInt(tag.get(1)); hasKind = true; } catch (NumberFormatException ignored) { }
+            try { if (Integer.parseInt(tag.get(1)) == requiredKind) hasKind = true; } catch (NumberFormatException ignored) { }
         }
         if (!hasKind) return null;
         Handler handler = new Handler(event);
