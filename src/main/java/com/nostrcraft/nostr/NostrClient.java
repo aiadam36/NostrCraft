@@ -563,6 +563,33 @@ public class NostrClient implements RelayConnection.Listener {
         return shortNpub(pubkey);
     }
 
+    public String profileWebsite(String pubkey) {
+        Profile profile = profiles.get(pubkey);
+        return profile == null || profile.website.isEmpty() ? null : profile.website;
+    }
+
+    public Boolean profileIsBot(String pubkey) {
+        Profile profile = profiles.get(pubkey);
+        return profile == null ? null : profile.bot;
+    }
+
+    public String profileBirthday(String pubkey) {
+        Profile profile = profiles.get(pubkey);
+        if (profile == null || (profile.birthdayYear == null && profile.birthdayMonth == null
+                && profile.birthdayDay == null)) return null;
+        StringBuilder date = new StringBuilder();
+        if (profile.birthdayYear != null) date.append(String.format(Locale.ROOT, "%04d", profile.birthdayYear));
+        if (profile.birthdayMonth != null || profile.birthdayDay != null) {
+            if (date.length() > 0) date.append('-');
+            date.append(profile.birthdayMonth == null ? "??" : String.format(Locale.ROOT, "%02d", profile.birthdayMonth));
+        }
+        if (profile.birthdayDay != null) {
+            if (date.length() > 0) date.append('-');
+            date.append(String.format(Locale.ROOT, "%02d", profile.birthdayDay));
+        }
+        return date.toString();
+    }
+
     /** Returns a verified NIP-05 identifier for UI display, or null until verification succeeds. */
     public String verifiedNip05(String pubkey) {
         Profile profile = profiles.get(pubkey);

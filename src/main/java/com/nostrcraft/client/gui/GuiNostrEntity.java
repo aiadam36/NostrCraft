@@ -99,9 +99,25 @@ public class GuiNostrEntity extends GuiScreen {
         catch (Exception e) { npub = entity.pubkey; }
         drawString(fontRenderer, "\u00a77" + Fmt.clean(npub, 96), left, 44, 0xFFFFFF);
         String nip05 = nc.verifiedNip05(entity.pubkey);
-        if (nip05 != null) drawString(fontRenderer, "\u00a7aVerified NIP-05: " + Fmt.clean(nip05, 80), left, 56, 0xFFFFFF);
-
-        int y = nip05 == null ? 64 : 76;
+        int y = 56;
+        if (nip05 != null) {
+            drawString(fontRenderer, "\u00a7aVerified NIP-05: " + Fmt.clean(nip05, 80), left, y, 0xFFFFFF);
+            y += 12;
+        }
+        String website = nc.profileWebsite(entity.pubkey);
+        if (website != null) {
+            drawString(fontRenderer, "\u00a7fWebsite: " + Fmt.clean(website, 100), left, y, 0xFFFFFF);
+            y += 12;
+        }
+        String birthday = nc.profileBirthday(entity.pubkey);
+        if (birthday != null) {
+            drawString(fontRenderer, "\u00a7fBirthday: " + Fmt.clean(birthday, 16), left, y, 0xFFFFFF);
+            y += 12;
+        }
+        if (Boolean.TRUE.equals(nc.profileIsBot(entity.pubkey))) {
+            drawString(fontRenderer, "\u00a7eAutomated account", left, y, 0xFFFFFF);
+            y += 12;
+        }
         drawString(fontRenderer, "\u00a7fRecent notes", left, y, 0xFFFFFF);
         y += 12;
         List<NostrEvent> notes = snapshot();
