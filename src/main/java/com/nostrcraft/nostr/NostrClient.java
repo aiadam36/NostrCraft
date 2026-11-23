@@ -68,8 +68,25 @@ public class NostrClient implements RelayConnection.Listener {
         final long ts;
         final String name;
         final String nip05;
+        final String website;
+        final String banner;
+        final Boolean bot;
+        final Integer birthdayYear;
+        final Integer birthdayMonth;
+        final Integer birthdayDay;
         volatile boolean nip05Verified;
-        Profile(long ts, String name, String nip05) { this.ts = ts; this.name = name; this.nip05 = nip05; }
+        Profile(long ts, String name, String nip05, String website, String banner, Boolean bot,
+                Integer birthdayYear, Integer birthdayMonth, Integer birthdayDay) {
+            this.ts = ts;
+            this.name = name;
+            this.nip05 = nip05;
+            this.website = website;
+            this.banner = banner;
+            this.bot = bot;
+            this.birthdayYear = birthdayYear;
+            this.birthdayMonth = birthdayMonth;
+            this.birthdayDay = birthdayDay;
+        }
     }
 
     private static final class SearchSpec {
@@ -736,11 +753,42 @@ public class NostrClient implements RelayConnection.Listener {
             if (name.length() > 32) name = name.substring(0, 32);
             if (name.isEmpty()) name = shortNpub(e.pubkey);
             String nip05 = str(o, "nip05").trim();
-            Profile profile = new Profile(e.createdAt, name, nip05);
+            String website = str(o, "website").trim();
+            String banner = str(o, "banner").trim();
+            Boolean bot = booleanValue(o, "bot");
+            JsonObject birthday = objectValue(o, "birthday");
+            Integer birthdayYear = birthday == null ? null : integerValue(birthday, "year");
+            Integer birthdayMonth = birthday == null ? null : integerValue(birthday, "month");
+            Integer birthdayDay = birthday == null ? null : integerValue(birthday, "day");
+            Profile profile = new Profile(e.createdAt, name, nip05, website, banner, bot,
+                    birthdayYear, birthdayMonth, birthdayDay);
             profiles.put(e.pubkey, profile);
             if (isValidNip05(nip05)) verifyNip05(e.pubkey, profile);
             feedVersion++;
         } catch (Exception ignored) { }
+    }
+
+    private static Boolean booleanValue(JsonObject object, String key) {
+        JsonElement value = object.get(key);
+        return value != null && value.isJsonPrimitive() && value.getAsJsonPrimitive().isBoolean()
+                ? value.getAsBoolean() : null;
+    }
+
+    private static JsonObject objectValue(JsonObject object, String key) {
+        JsonElement value = object.get(key);
+        return value != null && value.isJsonObject() ? value.getAsJsonObject() : null;
+    }
+
+    private static Integer integerValue(JsonObject object, String key) {
+        JsonElement value = object.get(key);
+        if (value == null || !value.isJsonPrimitive() || !value.getAsJsonPrimitive().isNumber()) return null;
+        try {
+            long number = value.getAsBigDecimal().longValueExact();
+            if (number < Integer.MIN_VALUE || number > Integer.MAX_VALUE) return null;
+            return (int) number;
+        } catch (ArithmeticException ignored) {
+            return null;
+        }
     }
 
     private static boolean isValidNip05(String identifier) {
