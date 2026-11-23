@@ -347,6 +347,8 @@ public class NostrClient implements RelayConnection.Listener {
         if (kind < 0 || kind > 65535 || callback == null) throw new IllegalArgumentException("Kind and callback are required");
         ensureStarted();
         final String id = "nc-nip89-" + nip89Counter.incrementAndGet();
+        final int relayCount = Math.max(1, openRelays().size());
+        final Set<String> recommendationEose = Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
         final List<NostrEvent> recommendations = Collections.synchronizedList(new ArrayList<NostrEvent>());
         final List<NostrFilter> filters = new ArrayList<NostrFilter>();
         NostrFilter recommendationFilter = new NostrFilter().kinds(NostrEvent.KIND_APP_RECOMMENDATION).tag('d', Integer.toString(kind)).limit(50);
@@ -354,11 +356,13 @@ public class NostrClient implements RelayConnection.Listener {
         NostrKeys account = keys;
         if (account != null) authors.add(account.getPubHex());
         synchronized (following) { for (String author : following) { if (!authors.contains(author)) authors.add(author); if (authors.size() >= 100) break; } }
+        if (authors.isEmpty()) { callback.onHandlers(Collections.<Nip89.Handler>emptyList()); return id; }
         if (!authors.isEmpty()) recommendationFilter.authors(authors.toArray(new String[authors.size()]));
         filters.add(recommendationFilter);
         subscribe(id, new SubscriptionListener() {
             @Override public void onEvent(NostrEvent event, String relayUrl) { synchronized (recommendations) { recommendations.add(event); } }
             @Override public void onEose(String relayUrl) {
+                if (!recommendationEose.add(relayUrl) || recommendationEose.size() < relayCount) return;
                 closeSubscription(id);
                 final Map<String, Nip89.Address> addresses = new LinkedHashMap<String, Nip89.Address>();
                 synchronized (recommendations) {
@@ -371,6 +375,8 @@ public class NostrClient implements RelayConnection.Listener {
                 final AtomicInteger handlerIndex = new AtomicInteger();
                 for (final Nip89.Address address : addresses.values()) {
                     final String handlerSub = id + "-h" + handlerIndex.incrementAndGet();
+                    final int handlerRelayCount = Math.max(1, openRelays().size());
+                    final Set<String> handlerEose = Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
                     NostrFilter f = new NostrFilter().kinds(NostrEvent.KIND_APP_HANDLER).authors(address.pubkey).tag('d', address.identifier).limit(1);
                     subscribe(handlerSub, new SubscriptionListener() {
                         @Override public void onEvent(NostrEvent event, String relayUrl) {
@@ -378,6 +384,7 @@ public class NostrClient implements RelayConnection.Listener {
                             if (handler != null && !handlers.contains(handler)) handlers.add(handler);
                         }
                         @Override public void onEose(String relayUrl) {
+                            if (!handlerEose.add(relayUrl) || handlerEose.size() < handlerRelayCount) return;
                             closeSubscription(handlerSub);
                             if (pending.decrementAndGet() == 0) callback.onHandlers(new ArrayList<Nip89.Handler>(handlers));
                         }
@@ -386,6 +393,22 @@ public class NostrClient implements RelayConnection.Listener {
             }
         }, recommendationFilter);
         return id;
+    }
+
+    /** Publishes a public NIP-89 recommendation for a discovered app handler. */
+    public void recommendHandler(Nip89.Handler handler, int kind, String platform) {
+        NostrKeys account = keys;
+        if (account == null) throw new IllegalStateException("Log in before recommending an app");
+        if (handler == null || handler.event == null || kind < 0 || kind > 65535)
+            throw new IllegalArgumentException("A handler and supported event kind are required");
+        String identifier = Nip89.tagValue(handler.event, "d");
+        if (identifier == null || identifier.isEmpty()) throw new IllegalArgumentException("Handler descriptor has no d tag");
+        List<List<String>> tags = new ArrayList<List<String>>();
+        tags.add(Arrays.asList("d", Integer.toString(kind)));
+        String address = NostrEvent.KIND_APP_HANDLER + ":" + handler.event.pubkey + ":" + identifier;
+        String relay = relayUrls.isEmpty() ? "" : relayUrls.get(0);
+        tags.add(Arrays.asList("a", address, relay, platform == null ? "web" : platform));
+        publishEvent(NostrEvent.create(account, NostrEvent.KIND_APP_RECOMMENDATION, tags, ""));
     }
 
     // ------------------------------------------------------------ relays

@@ -79,6 +79,7 @@ public class GuiNostrEntity extends GuiScreen {
             if (target != null) discover(target.kind);
         }
         else if (button.id >= 100 && button.id < 100 + handlers.size()) openHandler(button.id - 100);
+        else if (button.id >= 200 && button.id < 200 + handlers.size()) recommendHandler(button.id - 200);
     }
 
     private void discover(final int kind) {
@@ -93,12 +94,27 @@ public class GuiNostrEntity extends GuiScreen {
                         buttonList.removeIf(b -> b.id >= 100);
                         int y = height - 30;
                         for (int i = 0; i < handlers.size() && i < 3; i++)
-                            addButton(new GuiButton(100 + i, width / 2 - 55 + (i * 2), y - 24 * (i + 1), 110, 20,
+                        {
+                            int row = y - 24 * (i + 1);
+                            addButton(new GuiButton(100 + i, width / 2 - 112, row, 108, 20,
                                     handlers.get(i).name.length() > 16 ? handlers.get(i).name.substring(0, 16) : handlers.get(i).name));
+                            GuiButton recommend = addButton(new GuiButton(200 + i, width / 2 + 4, row, 108, 20, "Recommend"));
+                            recommend.enabled = nc.isLoggedIn();
+                        }
                     }
                 });
             }
         });
+    }
+
+    private void recommendHandler(int index) {
+        if (index < 0 || index >= handlers.size()) return;
+        NostrEvent target = currentTarget();
+        if (target == null) return;
+        try {
+            nc.recommendHandler(handlers.get(index), target.kind, "web");
+            error = "Recommendation published";
+        } catch (IllegalArgumentException | IllegalStateException e) { error = e.getMessage(); }
     }
 
     private NostrEvent currentTarget() {
