@@ -33,6 +33,8 @@ public class NostrClient implements RelayConnection.Listener {
         default void onEose(String relayUrl) { }
         default void onClosed(String relayUrl, String message) { }
     }
+
+    public interface Nip89Listener { void onHandlers(List<Nip89.Handler> handlers); }
     private static final NostrClient INSTANCE = new NostrClient();
     private static final ExecutorService NIP11_EXECUTOR = Executors.newFixedThreadPool(2, new ThreadFactory() {
         private final AtomicInteger number = new AtomicInteger();
@@ -131,6 +133,7 @@ public class NostrClient implements RelayConnection.Listener {
     private final AtomicInteger metaCounter = new AtomicInteger();
     private final AtomicInteger searchCounter = new AtomicInteger();
     private final AtomicInteger entityRequestCounter = new AtomicInteger();
+    private final AtomicInteger nip89Counter = new AtomicInteger();
     private final AtomicBoolean started = new AtomicBoolean();
     private ScheduledFuture<?> metaTask;
 
@@ -321,6 +324,52 @@ public class NostrClient implements RelayConnection.Listener {
         for (RelayConnection relay : openRelays()) relay.send(message);
         customSubscriptions.remove(subscriptionId);
         subscriptionListeners.remove(subscriptionId);
+    }
+
+    /** Finds recommended NIP-89 handlers from the account and followed authors. */
+    public String discoverHandlers(final int kind, final Nip89Listener callback) {
+        if (kind < 0 || kind > 65535 || callback == null) throw new IllegalArgumentException("Kind and callback are required");
+        ensureStarted();
+        final String id = "nc-nip89-" + nip89Counter.incrementAndGet();
+        final List<NostrEvent> recommendations = Collections.synchronizedList(new ArrayList<NostrEvent>());
+        final List<NostrFilter> filters = new ArrayList<NostrFilter>();
+        NostrFilter recommendationFilter = new NostrFilter().kinds(NostrEvent.KIND_APP_RECOMMENDATION).tag('d', Integer.toString(kind)).limit(50);
+        List<String> authors = new ArrayList<String>();
+        NostrKeys account = keys;
+        if (account != null) authors.add(account.getPubHex());
+        synchronized (following) { for (String author : following) { if (!authors.contains(author)) authors.add(author); if (authors.size() >= 100) break; } }
+        if (!authors.isEmpty()) recommendationFilter.authors(authors.toArray(new String[authors.size()]));
+        filters.add(recommendationFilter);
+        subscribe(id, new SubscriptionListener() {
+            @Override public void onEvent(NostrEvent event, String relayUrl) { synchronized (recommendations) { recommendations.add(event); } }
+            @Override public void onEose(String relayUrl) {
+                closeSubscription(id);
+                final Map<String, Nip89.Address> addresses = new LinkedHashMap<String, Nip89.Address>();
+                synchronized (recommendations) {
+                    for (NostrEvent recommendation : recommendations)
+                        for (Nip89.Address address : Nip89.recommendationAddresses(recommendation, kind)) addresses.put(address.key(), address);
+                }
+                if (addresses.isEmpty()) { callback.onHandlers(Collections.<Nip89.Handler>emptyList()); return; }
+                final List<Nip89.Handler> handlers = Collections.synchronizedList(new ArrayList<Nip89.Handler>());
+                final AtomicInteger pending = new AtomicInteger(addresses.size());
+                final AtomicInteger handlerIndex = new AtomicInteger();
+                for (final Nip89.Address address : addresses.values()) {
+                    final String handlerSub = id + "-h" + handlerIndex.incrementAndGet();
+                    NostrFilter f = new NostrFilter().kinds(NostrEvent.KIND_APP_HANDLER).authors(address.pubkey).tag('d', address.identifier).limit(1);
+                    subscribe(handlerSub, new SubscriptionListener() {
+                        @Override public void onEvent(NostrEvent event, String relayUrl) {
+                            Nip89.Handler handler = Nip89.parseHandler(event);
+                            if (handler != null && !handlers.contains(handler)) handlers.add(handler);
+                        }
+                        @Override public void onEose(String relayUrl) {
+                            closeSubscription(handlerSub);
+                            if (pending.decrementAndGet() == 0) callback.onHandlers(new ArrayList<Nip89.Handler>(handlers));
+                        }
+                    }, f);
+                }
+            }
+        }, recommendationFilter);
+        return id;
     }
 
     // ------------------------------------------------------------ relays
