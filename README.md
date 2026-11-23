@@ -2,6 +2,8 @@
 
 Browse and post to **Nostr** from inside of your Minecraft
 
+![Cover image](https://static.adamiskandar.com/images/nostrcraft/cover-6ddccb.webp)
+
 > [!NOTE]
 > We only develop for **Forge 1.12.2**, other version might be an unofficial port so be cautious
 
@@ -85,6 +87,12 @@ src/main/java/com/nostrcraft/nostr/ -> Schnorr, Bech32, NostrEvent, RelayConnect
 - The Schnorr code is not constant-time. Fine for a game client, not for a server handling many keys
 - All relay-supplied text is stripped of `§` formatting codes and control characters before display
 - Old Java 8 builds may lack the root CA for some relays' TLS certs; update Java 8 or edit relays with `/nostr relay`
+
+## Screenshots
+
+![In-game Nostr Screen block](https://static.adamiskandar.com/images/nostrcraft/ingame-b7bfcf.webp)
+
+![Nostr browser](https://static.adamiskandar.com/images/nostrcraft/browser-e8fd0c.webp)
 
 ## Ideas / next steps
 
