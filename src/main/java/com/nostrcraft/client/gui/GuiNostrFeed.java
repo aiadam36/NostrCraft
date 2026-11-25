@@ -57,6 +57,8 @@ public class GuiNostrFeed extends GuiScreen {
     private final List<FeedLine> lines = new ArrayList<FeedLine>();
     private final List<LinkHitbox> linkHitboxes = new ArrayList<LinkHitbox>();
     private int scroll;
+    private boolean draggingScrollbar;
+    private int scrollbarDragOffset;
     private int builtVersion = -1, builtWidth = -1;
     private long builtAt;
     private int searchActionToken;
@@ -195,6 +197,23 @@ public class GuiNostrFeed extends GuiScreen {
     @Override
     protected void mouseClicked(int mx, int my, int btn) throws IOException {
         super.mouseClicked(mx, my, btn);
+        if (btn == 0 && isOverScrollbar(mx, my)) {
+            int visible = getVisibleLineCount();
+            int max = Math.max(0, lines.size() - visible);
+            if (max > 0) {
+                int thumbTop = getScrollbarThumbTop(max);
+                int thumbHeight = getScrollbarThumbHeight();
+                if (my >= thumbTop && my < thumbTop + thumbHeight) {
+                    draggingScrollbar = true;
+                    scrollbarDragOffset = my - thumbTop;
+                } else {
+                    scrollbarDragOffset = thumbHeight / 2;
+                    setScrollFromMouse(my - scrollbarDragOffset, max);
+                    draggingScrollbar = true;
+                }
+            }
+            return;
+        }
         if (btn == 0) {
             for (LinkHitbox hitbox : linkHitboxes) if (hitbox.contains(mx, my)) {
                 mc.displayGuiScreen(new GuiNostrEntity(this, hitbox.entity));
@@ -208,10 +227,26 @@ public class GuiNostrFeed extends GuiScreen {
     }
 
     @Override
+    protected void mouseClickMove(int mx, int my, int btn, long elapsed) {
+        if (draggingScrollbar && btn == 0) {
+            int max = Math.max(0, lines.size() - getVisibleLineCount());
+            setScrollFromMouse(my - scrollbarDragOffset, max);
+            return;
+        }
+        super.mouseClickMove(mx, my, btn, elapsed);
+    }
+
+    @Override
+    protected void mouseReleased(int mx, int my, int state) {
+        if (state == 0) draggingScrollbar = false;
+        super.mouseReleased(mx, my, state);
+    }
+
+    @Override
     public void handleMouseInput() throws IOException {
         super.handleMouseInput();
         int d = Mouse.getEventDWheel();
-        if (d != 0) scroll = Math.max(0, scroll - Integer.signum(d) * 3);
+        if (d != 0) scroll = Math.max(0, Math.min(Math.max(0, lines.size() - getVisibleLineCount()), scroll - Integer.signum(d) * 3));
     }
 
     private void rebuildLines() {
@@ -256,16 +291,15 @@ public class GuiNostrFeed extends GuiScreen {
         if (searchBox.getText().isEmpty() && !searchBox.isFocused())
             drawString(fontRenderer, "\u00a78Text, npub, name@domain, or filters", px + 4, 39, 0xFFFFFF);
 
-        int visible = (feedBottom - feedTop) / 10;
+        int visible = getVisibleLineCount();
         int max = Math.max(0, lines.size() - visible);
         if (scroll > max) scroll = max;
         linkHitboxes.clear();
         for (int i = 0; i < visible && scroll + i < lines.size(); i++)
             drawFeedLine(lines.get(scroll + i), px, feedTop + i * 10, mx, my);
         if (max > 0) { // scrollbar
-            int h = feedBottom - feedTop;
-            int barH = Math.max(12, h * visible / lines.size());
-            int barY = feedTop + (h - barH) * scroll / max;
+            int barH = getScrollbarThumbHeight();
+            int barY = getScrollbarThumbTop(max);
             drawRect(px + pw + 1, feedTop, px + pw + 3, feedBottom, 0x40FFFFFF);
             drawRect(px + pw + 1, barY, px + pw + 3, barY + barH, 0xC0B084F0);
         }
@@ -275,6 +309,28 @@ public class GuiNostrFeed extends GuiScreen {
             drawString(fontRenderer, "\u00a78What's on your mind?", px + 4, height - 37, 0xFFFFFF);
         drawString(fontRenderer, nc.getStatus(), px, height - 17, 0xAAAAAA);
         super.drawScreen(mx, my, pt);
+    }
+
+    private int getVisibleLineCount() { return Math.max(1, (feedBottom - feedTop) / 10); }
+
+    private int getScrollbarThumbHeight() {
+        int h = feedBottom - feedTop;
+        return Math.min(h, Math.max(12, h * getVisibleLineCount() / Math.max(1, lines.size())));
+    }
+
+    private int getScrollbarThumbTop(int maxScroll) {
+        int travel = feedBottom - feedTop - getScrollbarThumbHeight();
+        return feedTop + (maxScroll == 0 ? 0 : travel * scroll / maxScroll);
+    }
+
+    private boolean isOverScrollbar(int mx, int my) {
+        return mx >= px + pw - 3 && mx <= px + pw + 7 && my >= feedTop && my < feedBottom;
+    }
+
+    private void setScrollFromMouse(int thumbTop, int maxScroll) {
+        int travel = feedBottom - feedTop - getScrollbarThumbHeight();
+        scroll = travel <= 0 ? 0 : Math.max(0, Math.min(maxScroll,
+                (thumbTop - feedTop) * maxScroll / travel));
     }
 
     private void addLine(String text) {
