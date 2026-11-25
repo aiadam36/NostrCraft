@@ -21,12 +21,15 @@ Browse and post to **Nostr** from inside of your Minecraft
 | NIP-19  | `npub` / `nsec` bech32 encode + decode; parses public entities, renders references as readable links, and opens profile/event detail views when clicked                                                                                        |
 | NIP-24  | reads kind-0 `display_name`, `website`, `banner`, `bot`, and partial `birthday` metadata; displays profile details and asynchronously loads bounded banner images; ignores deprecated metadata fields and kind-3 relay maps                    |
 | NIP-50  | checks relay NIP-11 capabilities before using `search`; supports `from:`, `kind:`, `since:`, `until:`, and `#tag` filters with local text matching on relays without NIP-50                                                                    |
-| NIP-89  | discovers app handlers recommended by you or followed authors for addressable events; allows publishing handler recommendations and an opt-in `client` tag on notes |
+| NIP-89  | discovers app handlers recommended by you or followed authors for addressable events; allows publishing handler recommendations and an opt-in `client` tag on notes                                                                            |
 | BIP-340 | Schnorr sign + verify (pure `BigInteger`, tested against the official vector)                                                                                                                                                                  |
 
 Incoming event ids **and signatures are verified**. Replies are hidden from the feed (`NostrClient.HIDE_REPLIES`)
 
-NIP-89 recommendations are available from an event detail screen with **Find an app**. Results are limited to recommendations published by you or accounts you follow. The Account screen has a **NIP-89 client tag** toggle, off by default; when enabled, each note publishes/updates a `kind:31990` descriptor under your account key and includes its address in the note's `client` tag. This ties the descriptor to the logged-in account rather than a dedicated NostrCraft key.
+### App discovery
+
+- From an event detail screen, choose **Find an app** to discover handlers recommended by you or accounts you follow
+- In Account, enable **NIP-89 client tag** to tag your notes as published with NostrCraft. When you publish a note with this option enabled, NostrCraft also publishes a `kind:31990` app descriptor under your account key and includes its address in the note's `client` tag
 
 ## Commands
 
