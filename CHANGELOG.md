@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0
+- Expanded search with kind, author, tag, and time filters, plus NIP-05 name lookup
+- Added profile details for websites, banners, birthdays, and automated accounts
+- Added NIP-89 app discovery for supported events, with controls to publish app recommendations and opt in to client tags
+- Added readable previews for non-text events that include an `alt` description
+
 ## 0.3.0
 - Added NIP-05 verification badges to the feed and Nostr Screen
 - Made NIP-19 references in notes readable and clickable, with in-game views for profiles, notes, events, and addressable events
