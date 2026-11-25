@@ -17,12 +17,12 @@ Browse and post to **Nostr** from inside of your Minecraft
 |---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | NIP-01  | validated events with canonical id hashing and signatures; general `REQ` filters (ids, authors, kinds, tags, time, limit), persistent subscriptions with reconnect, `EVENT` publishing, and relay `OK` / `EOSE` / `NOTICE` / `CLOSED` handling |
 | NIP-02  | reads the logged-in account's kind-3 follow list and filters a Following feed by `p` tags                                                                                                                                                      |
-| NIP-44  | encrypts and decrypts version-2 payloads for NIP-46 remote-signer messages                                                                                                                                                                     |
 | NIP-05  | verifies kind-0 identifiers against `https://<domain>/.well-known/nostr.json`, marks matching profiles, and resolves searched identifiers back to matching profiles                                                                            |
 | NIP-19  | `npub` / `nsec` bech32 encode + decode; parses public entities, renders references as readable links, and opens profile/event detail views when clicked                                                                                        |
 | NIP-24  | reads kind-0 `display_name`, `website`, `banner`, `bot`, and partial `birthday` metadata; displays profile details and asynchronously loads bounded banner images; ignores deprecated metadata fields and kind-3 relay maps                    |
-| NIP-50  | checks relay NIP-11 capabilities before using `search`; supports `from:`, `kind:`, `since:`, `until:`, and `#tag` filters with local text matching on relays without NIP-50                                                                    |
+| NIP-44  | encrypts and decrypts version-2 payloads for NIP-46 remote-signer messages                                                                                                                                                                     |
 | NIP-46  | connects to a remote signer with `nostrconnect://`, fetches the account public key, routes event signing remotely, validates signed events, and follows signer relay changes                                                                   |
+| NIP-50  | checks relay NIP-11 capabilities before using `search`; supports `from:`, `kind:`, `since:`, `until:`, and `#tag` filters with local text matching on relays without NIP-50                                                                    |
 | NIP-89  | discovers app handlers recommended by you or followed authors for addressable events; allows publishing handler recommendations and an opt-in `client` tag on notes                                                                            |
 | BIP-340 | Schnorr sign + verify (pure `BigInteger`, tested against the official vector)                                                                                                                                                                  |
 
@@ -51,7 +51,11 @@ All commands were client-side only, they were never sent to the server
 
 > Be careful with `/nostr export`, it prints your nsec
 
-`/nostr connect` remembers the selected signer relays in `config/nostrcraft.json`. Open the Account screen to copy the generated `nostrconnect://` URI, or use the command and paste the copied URI into your signer app. Approve the requested signing permissions in the signer. `/nostr disconnect` ends a remote session; `/nostr logout` also clears the active local account.
+### Remote signing
+
+- In Account, select signer relays and choose **Connect signer**, or run `/nostr connect [wss://relay[,wss://another-relay...]]`. NostrCraft remembers the selected relays in `config/nostrcraft.json`
+- In Account, choose **Copy signer URI** and paste it into your signer app. When you use the command, NostrCraft copies the URI to your clipboard once a relay is ready. Approve the requested signing permissions in your signer to finish connecting
+- Use `/nostr disconnect` to end the remote signer session. Use `/nostr logout` to end it and clear the active account
 
 ## Search bar
 
