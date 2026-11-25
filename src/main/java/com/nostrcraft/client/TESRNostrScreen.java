@@ -86,7 +86,8 @@ public class TESRNostrScreen extends TileEntitySpecialRenderer<TileNostrScreen> 
         int n = feed.size();
         for (int i = 0; i < n && lines.size() < MAX_LINES; i++) {
             NostrEvent e = feed.get(Math.floorMod(slot + i, n));
-            String verified = nc.verifiedNip05(e.pubkey) == null ? "" : " \u00a7a[NIP-05]";
+            String nip05 = nc.verifiedNip05(e.pubkey);
+            String verified = nip05 == null ? "" : " \u00a7a[" + Fmt.clean(nip05, 80) + "]";
             lines.add("\u00a7b" + fr.trimStringToWidth(nc.displayName(e.pubkey) + verified, TEXT_W));
             int shown = 0;
             for (Object l : fr.listFormattedStringToWidth(Fmt.clean(e.content, 160), TEXT_W)) {
