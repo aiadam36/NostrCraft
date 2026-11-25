@@ -119,6 +119,18 @@ public final class Schnorr {
         return bytes32(mul(G, new BigInteger(1, sk))[0]);
     }
 
+    /** X coordinate of the secp256k1 ECDH point, used by NIP-44. */
+    public static byte[] sharedSecret(byte[] sk, byte[] peerPubX) {
+        if (!isValidSecret(sk)) throw new IllegalArgumentException("Invalid secret key");
+        if (peerPubX == null || peerPubX.length != 32) throw new IllegalArgumentException("Public key must be 32 bytes");
+        BigInteger x = new BigInteger(1, peerPubX);
+        BigInteger[] peer = liftX(x);
+        if (peer == null) throw new IllegalArgumentException("Invalid secp256k1 public key");
+        BigInteger[] shared = mul(peer, new BigInteger(1, sk));
+        if (shared == null) throw new IllegalArgumentException("Invalid shared point");
+        return bytes32(shared[0]);
+    }
+
     public static byte[] sign(byte[] msg32, byte[] sk) {
         byte[] aux = new byte[32];
         RNG.nextBytes(aux);
