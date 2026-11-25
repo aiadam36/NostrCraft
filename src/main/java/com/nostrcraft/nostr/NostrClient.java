@@ -35,6 +35,7 @@ public class NostrClient implements RelayConnection.Listener {
     }
 
     public interface Nip89Listener { void onHandlers(List<Nip89.Handler> handlers); }
+    public interface RemoteLoginListener extends Nip46Connection.Listener { }
     private static final NostrClient INSTANCE = new NostrClient();
     private static final ExecutorService NIP11_EXECUTOR = Executors.newFixedThreadPool(2, new ThreadFactory() {
         private final AtomicInteger number = new AtomicInteger();
@@ -109,6 +110,8 @@ public class NostrClient implements RelayConnection.Listener {
     private final JsonParser parser = new JsonParser();
     private File configFile;
     private volatile NostrKeys keys;
+    private volatile Nip46Connection remoteConnection;
+    private volatile NostrSigner remoteSigner;
     private volatile boolean clientTagEnabled;
     private volatile long followListCreatedAt;
 
@@ -165,6 +168,7 @@ public class NostrClient implements RelayConnection.Listener {
     public void stop() {
         if (!started.compareAndSet(true, false)) return;
         if (metaTask != null) metaTask.cancel(false);
+        disconnectRemoteSigner();
         for (RelayConnection rc : relays.values()) rc.close();
         relays.clear();
         status = "Disconnected";
@@ -182,15 +186,110 @@ public class NostrClient implements RelayConnection.Listener {
 
     // ------------------------------------------------------------ account (client-side only)
 
-    public boolean isLoggedIn() { return keys != null; }
-    public String getNpub() { return keys == null ? null : keys.getNpub(); }
-    public String getNsec() { return keys == null ? null : keys.getNsec(); }
+    public boolean isLoggedIn() { return accountPubkey() != null; }
+    public String getNpub() {
+        String pubkey = accountPubkey();
+        return pubkey == null ? null : Bech32.encode("npub", Hex.decode(pubkey));
+    }
+    public String getNsec() { NostrKeys local = keys; return remoteSigner == null && local != null ? local.getNsec() : null; }
     public boolean isClientTagEnabled() { return clientTagEnabled; }
     public void setClientTagEnabled(boolean enabled) { clientTagEnabled = enabled; save(); }
 
+    private String accountPubkey() {
+        NostrSigner remote = remoteSigner;
+        if (remote != null) return remote.getPublicKey();
+        NostrKeys local = keys;
+        return local == null ? null : local.getPubHex();
+    }
+
+    private NostrSigner activeSigner() {
+        NostrSigner remote = remoteSigner;
+        if (remote != null) return remote;
+        final NostrKeys local = keys;
+        if (local == null) return null;
+        return new NostrSigner() {
+            @Override public String getPublicKey() { return local.getPubHex(); }
+            @Override public void signEvent(NostrEvent unsigned, Callback callback) {
+                try {
+                    byte[] id = unsigned.computeIdBytes();
+                    unsigned.id = Hex.encode(id);
+                    unsigned.sig = Hex.encode(local.sign(id));
+                    callback.onSigned(unsigned);
+                } catch (Exception e) { callback.onError(e.getMessage()); }
+            }
+        };
+    }
+
+    /** Starts a client-initiated NIP-46 connection; the UI can present the URI from onUri. */
+    public Nip46Connection connectRemoteSigner(List<String> signerRelays, String permissions, final RemoteLoginListener callback) {
+        if (callback == null) throw new IllegalArgumentException("Remote login listener is required");
+        ensureStarted();
+        final Nip46Connection[] holder = new Nip46Connection[1];
+        Nip46Connection connection = new Nip46Connection(new Nip46Connection.Listener() {
+            @Override public void onUri(String uri) { callback.onUri(uri); }
+            @Override public void onConnected(final String userPubkey, final String signerPubkey) {
+                if (remoteConnection != holder[0]) return;
+                remoteSigner = new NostrSigner() {
+                    @Override public String getPublicKey() { return userPubkey; }
+                    @Override public void signEvent(NostrEvent unsigned, final Callback signedCallback) {
+                        holder[0].signEvent(unsigned, new Nip46Connection.RpcListener() {
+                            @Override public void onResult(String result) {
+                                try {
+                                    if (remoteConnection != holder[0]) {
+                                        signedCallback.onError("Remote signer session is no longer active");
+                                        return;
+                                    }
+                                    NostrEvent signed = NostrEvent.fromJson(parser.parse(result));
+                                    if (signed == null || !signed.verify(true)
+                                            || !userPubkey.equals(signed.pubkey)
+                                            || !sameUnsignedFields(unsigned, signed)) {
+                                        signedCallback.onError("Remote signer returned an invalid or changed event");
+                                        return;
+                                    }
+                                    signedCallback.onSigned(signed);
+                                } catch (Exception e) { signedCallback.onError("Could not read signed event from remote signer"); }
+                            }
+                            @Override public void onError(String message) { signedCallback.onError(message); }
+                        });
+                    }
+                };
+                following.clear(); followListCreatedAt = 0;
+                queueMeta(userPubkey); requestFollowList();
+                status = "Logged in with remote signer as " + shortNpub(userPubkey);
+                callback.onConnected(userPubkey, signerPubkey);
+            }
+            @Override public void onError(String message) {
+                if (remoteConnection == holder[0]) { remoteSigner = null; remoteConnection = null; }
+                status = "Remote signer: " + message;
+                callback.onError(message);
+            }
+        });
+        holder[0] = connection;
+        Nip46Connection previous = remoteConnection;
+        remoteConnection = connection;
+        remoteSigner = null;
+        if (previous != null) previous.close();
+        try { connection.start(signerRelays, permissions); }
+        catch (RuntimeException e) {
+            remoteConnection = null;
+            connection.close();
+            throw e;
+        }
+        return connection;
+    }
+
+    public void disconnectRemoteSigner() {
+        Nip46Connection connection = remoteConnection;
+        remoteConnection = null; remoteSigner = null;
+        if (connection != null) connection.close();
+    }
+
     public void login(String input) {
         NostrKeys k = NostrKeys.parse(input); // throws IllegalArgumentException on bad input
+        disconnectRemoteSigner();
+        NostrKeys previous = keys;
         keys = k;
+        if (previous != null && previous != k) previous.destroy();
         following.clear();
         followListCreatedAt = 0;
         queueMeta(k.getPubHex());
@@ -200,7 +299,10 @@ public class NostrClient implements RelayConnection.Listener {
     }
 
     public void generateKey() {
+        disconnectRemoteSigner();
+        NostrKeys previous = keys;
         keys = NostrKeys.generate();
+        if (previous != null) previous.destroy();
         following.clear();
         followListCreatedAt = 0;
         queueMeta(keys.getPubHex());
@@ -210,7 +312,10 @@ public class NostrClient implements RelayConnection.Listener {
     }
 
     public void logout() {
+        disconnectRemoteSigner();
+        NostrKeys previous = keys;
         keys = null;
+        if (previous != null) previous.destroy();
         following.clear();
         followListCreatedAt = 0;
         feedVersion++;
@@ -222,28 +327,52 @@ public class NostrClient implements RelayConnection.Listener {
 
     /** Publishes a kind-1 text note to every open relay. */
     public void publish(String content) {
-        NostrKeys k = keys;
-        if (k == null) throw new IllegalStateException("Not logged in - open the login screen first");
+        final NostrSigner signer = activeSigner();
+        if (signer == null) throw new IllegalStateException("Not logged in - open the login screen first");
         content = content == null ? "" : content.trim();
         if (content.isEmpty()) throw new IllegalStateException("Note is empty");
         List<RelayConnection> open = openRelays();
         if (open.isEmpty()) throw new IllegalStateException("No relay connected yet");
 
         List<List<String>> tags = new ArrayList<List<String>>();
+        final List<NostrEvent> events = new ArrayList<NostrEvent>();
         if (clientTagEnabled) {
-            String address = NostrEvent.KIND_APP_HANDLER + ":" + k.getPubHex() + ":nostrcraft";
+            String address = NostrEvent.KIND_APP_HANDLER + ":" + signer.getPublicKey() + ":nostrcraft";
             List<List<String>> descriptorTags = new ArrayList<List<String>>();
             descriptorTags.add(Arrays.asList("d", "nostrcraft"));
             descriptorTags.add(Arrays.asList("k", "0"));
             descriptorTags.add(Arrays.asList("k", "1"));
             descriptorTags.add(Arrays.asList("k", "3"));
-            NostrEvent descriptor = NostrEvent.create(k, NostrEvent.KIND_APP_HANDLER, descriptorTags,
+            NostrEvent descriptor = NostrEvent.unsigned(signer.getPublicKey(), NostrEvent.KIND_APP_HANDLER, descriptorTags,
                     "{\"name\":\"NostrCraft\",\"about\":\"Nostr client inside Minecraft\"}");
-            publishEvent(descriptor);
+            events.add(descriptor);
             tags.add(Arrays.asList("client", "NostrCraft", address, relayUrls.isEmpty() ? "" : relayUrls.get(0)));
         }
-        NostrEvent ev = NostrEvent.create(k, NostrEvent.KIND_TEXT_NOTE, tags, content);
-        publishEvent(ev);
+        events.add(NostrEvent.unsigned(signer.getPublicKey(), NostrEvent.KIND_TEXT_NOTE, tags, content));
+        signAndPublish(signer, events, 0);
+    }
+
+    private void signAndPublish(final NostrSigner signer, final List<NostrEvent> events, final int index) {
+        if (index >= events.size()) return;
+        signer.signEvent(events.get(index), new NostrSigner.Callback() {
+            @Override public void onSigned(NostrEvent signed) {
+                try {
+                    if (signed == null || !signed.verify(true) || !sameUnsignedFields(events.get(index), signed)
+                            || !signer.getPublicKey().equals(signed.pubkey)
+                            || !signer.getPublicKey().equals(accountPubkey()))
+                        throw new IllegalArgumentException("Signer returned an invalid or changed event");
+                    publishEvent(signed);
+                    signAndPublish(signer, events, index + 1);
+                } catch (RuntimeException e) { status = "Could not publish: " + e.getMessage(); }
+            }
+            @Override public void onError(String message) { status = "Signing failed: " + message; }
+        });
+    }
+
+    private static boolean sameUnsignedFields(NostrEvent expected, NostrEvent actual) {
+        return expected.kind == actual.kind && expected.createdAt == actual.createdAt
+                && expected.pubkey.equals(actual.pubkey) && expected.content.equals(actual.content)
+                && expected.tags.equals(actual.tags);
     }
 
     /** Publishes a previously signed, valid event to every open relay. */
@@ -353,8 +482,8 @@ public class NostrClient implements RelayConnection.Listener {
         final List<NostrFilter> filters = new ArrayList<NostrFilter>();
         NostrFilter recommendationFilter = new NostrFilter().kinds(NostrEvent.KIND_APP_RECOMMENDATION).tag('d', Integer.toString(kind)).limit(50);
         List<String> authors = new ArrayList<String>();
-        NostrKeys account = keys;
-        if (account != null) authors.add(account.getPubHex());
+        String account = accountPubkey();
+        if (account != null) authors.add(account);
         synchronized (following) { for (String author : following) { if (!authors.contains(author)) authors.add(author); if (authors.size() >= 100) break; } }
         if (authors.isEmpty()) { callback.onHandlers(Collections.<Nip89.Handler>emptyList()); return id; }
         if (!authors.isEmpty()) recommendationFilter.authors(authors.toArray(new String[authors.size()]));
@@ -397,8 +526,8 @@ public class NostrClient implements RelayConnection.Listener {
 
     /** Publishes a public NIP-89 recommendation for a discovered app handler. */
     public void recommendHandler(Nip89.Handler handler, int kind, String platform) {
-        NostrKeys account = keys;
-        if (account == null) throw new IllegalStateException("Log in before recommending an app");
+        final NostrSigner signer = activeSigner();
+        if (signer == null) throw new IllegalStateException("Log in before recommending an app");
         if (handler == null || handler.event == null || kind < 0 || kind > 65535)
             throw new IllegalArgumentException("A handler and supported event kind are required");
         String identifier = Nip89.tagValue(handler.event, "d");
@@ -408,7 +537,9 @@ public class NostrClient implements RelayConnection.Listener {
         String address = NostrEvent.KIND_APP_HANDLER + ":" + handler.event.pubkey + ":" + identifier;
         String relay = relayUrls.isEmpty() ? "" : relayUrls.get(0);
         tags.add(Arrays.asList("a", address, relay, platform == null ? "web" : platform));
-        publishEvent(NostrEvent.create(account, NostrEvent.KIND_APP_RECOMMENDATION, tags, ""));
+        List<NostrEvent> events = Collections.singletonList(
+                NostrEvent.unsigned(signer.getPublicKey(), NostrEvent.KIND_APP_RECOMMENDATION, tags, ""));
+        signAndPublish(signer, events, 0);
     }
 
     // ------------------------------------------------------------ relays
@@ -720,8 +851,8 @@ public class NostrClient implements RelayConnection.Listener {
     }
 
     private void requestFollowList(RelayConnection c) {
-        NostrKeys account = keys;
-        if (account != null) c.send("[\"REQ\",\"nc-follow-list\",{\"kinds\":[3],\"authors\":[\"" + account.getPubHex() + "\"],\"limit\":1}]");
+        String account = accountPubkey();
+        if (account != null) c.send("[\"REQ\",\"nc-follow-list\",{\"kinds\":[3],\"authors\":[\"" + account + "\"],\"limit\":1}]");
     }
 
     @Override
@@ -796,8 +927,8 @@ public class NostrClient implements RelayConnection.Listener {
         }
         if (e.kind == NostrEvent.KIND_CONTACT_LIST) {
             if (searchResult) { addToSearch(e); return; }
-            NostrKeys account = keys;
-            if (account == null || !account.getPubHex().equals(e.pubkey)) return;
+            String account = accountPubkey();
+            if (account == null || !account.equals(e.pubkey)) return;
             handleFollowList(e);
             return;
         }

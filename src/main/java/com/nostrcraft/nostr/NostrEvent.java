@@ -76,11 +76,21 @@ public class NostrEvent {
 
     /** Build, hash and sign a new event. */
     public static NostrEvent create(NostrKeys keys, int kind, List<List<String>> tags, String content) {
-        if (kind < 0 || kind > 65535) throw new IllegalArgumentException("kind must be between 0 and 65535");
         if (keys == null) throw new IllegalArgumentException("keys cannot be null");
+        NostrEvent e = unsigned(keys.getPubHex(), kind, tags, content);
+        byte[] idBytes = e.computeIdBytes();
+        e.id = Hex.encode(idBytes);
+        e.sig = Hex.encode(keys.sign(idBytes));
+        return e;
+    }
+
+    /** Creates the canonical unsigned event to be signed locally or by a remote signer. */
+    public static NostrEvent unsigned(String pubkey, int kind, List<List<String>> tags, String content) {
+        if (kind < 0 || kind > 65535) throw new IllegalArgumentException("kind must be between 0 and 65535");
+        if (!Hex.isHex(pubkey, 64)) throw new IllegalArgumentException("pubkey must be 64-character hexadecimal");
         if (content == null) throw new IllegalArgumentException("content cannot be null");
         NostrEvent e = new NostrEvent();
-        e.pubkey = keys.getPubHex();
+        e.pubkey = pubkey.toLowerCase(java.util.Locale.ROOT);
         e.createdAt = System.currentTimeMillis() / 1000L;
         e.kind = kind;
         if (tags != null) {
@@ -91,10 +101,23 @@ public class NostrEvent {
             e.tags = tags;
         }
         e.content = content;
-        byte[] idBytes = e.computeIdBytes();
-        e.id = Hex.encode(idBytes);
-        e.sig = Hex.encode(keys.sign(idBytes));
         return e;
+    }
+
+    /** Fields requested by NIP-46 sign_event, excluding id and signature. */
+    public JsonObject toUnsignedJson() {
+        JsonObject o = new JsonObject();
+        o.addProperty("kind", kind);
+        o.addProperty("content", content);
+        JsonArray ts = new JsonArray();
+        for (List<String> tag : tags) {
+            JsonArray values = new JsonArray();
+            for (String value : tag) values.add(new JsonPrimitive(value));
+            ts.add(values);
+        }
+        o.add("tags", ts);
+        o.addProperty("created_at", createdAt);
+        return o;
     }
 
     /** Checks the id hash and (optionally) the Schnorr signature. */

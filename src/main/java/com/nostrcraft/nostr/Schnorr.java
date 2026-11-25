@@ -119,6 +119,11 @@ public final class Schnorr {
         return bytes32(mul(G, new BigInteger(1, sk))[0]);
     }
 
+    /** Checks whether a 32-byte x-only public key is a valid secp256k1 point. */
+    public static boolean isValidPublicKey(byte[] pubX) {
+        return pubX != null && pubX.length == 32 && liftX(new BigInteger(1, pubX)) != null;
+    }
+
     /** X coordinate of the secp256k1 ECDH point, used by NIP-44. */
     public static byte[] sharedSecret(byte[] sk, byte[] peerPubX) {
         if (!isValidSecret(sk)) throw new IllegalArgumentException("Invalid secret key");

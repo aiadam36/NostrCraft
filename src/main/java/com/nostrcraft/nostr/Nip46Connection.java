@@ -30,6 +30,11 @@ public final class Nip46Connection implements RelayConnection.Listener {
         void onError(String message);
     }
 
+    public interface RpcListener {
+        void onResult(String result);
+        void onError(String message);
+    }
+
     private static final int KIND_NIP46 = 24133;
     private static final long CONNECT_TIMEOUT_SECONDS = 180;
     private static final long REQUEST_TIMEOUT_SECONDS = 45;
@@ -39,7 +44,10 @@ public final class Nip46Connection implements RelayConnection.Listener {
     private static final class Pending {
         final String method;
         final ScheduledFuture<?> timeout;
-        Pending(String method, ScheduledFuture<?> timeout) { this.method = method; this.timeout = timeout; }
+        final RpcListener callback;
+        Pending(String method, ScheduledFuture<?> timeout, RpcListener callback) {
+            this.method = method; this.timeout = timeout; this.callback = callback;
+        }
     }
 
     private final Listener listener;
@@ -144,16 +152,21 @@ public final class Nip46Connection implements RelayConnection.Listener {
         if (request == null) return;
         request.timeout.cancel(false);
         if (response.has("error")) {
+            if (request.callback != null) request.callback.onError(response.get("error").getAsString());
             if ("get_public_key".equals(request.method)) fail("Remote signer rejected get_public_key: " + response.get("error").getAsString());
             return;
         }
         JsonElement result = response.get("result");
         if ("get_public_key".equals(request.method)) {
             if (result == null || !result.isJsonPrimitive() || !result.getAsJsonPrimitive().isString()
-                    || !Hex.isHex(result.getAsString(), 64)) { fail("Remote signer returned an invalid user public key"); return; }
+                    || !Hex.isHex(result.getAsString(), 64)
+                    || !Schnorr.isValidPublicKey(Hex.decode(result.getAsString()))) {
+                fail("Remote signer returned an invalid user public key"); return;
+            }
             userPubkey = result.getAsString().toLowerCase(java.util.Locale.ROOT);
             connected = true;
             listener.onConnected(userPubkey, remoteSignerPubkey);
+            if (request.callback != null) request.callback.onResult(userPubkey);
         } else if ("switch_relays".equals(request.method)) {
             JsonElement relayResult = result;
             if (relayResult != null && relayResult.isJsonPrimitive() && relayResult.getAsJsonPrimitive().isString()) {
@@ -172,9 +185,22 @@ public final class Nip46Connection implements RelayConnection.Listener {
             }
             if (!next.isEmpty()) switchRelays(next);
         }
+        if (request.callback != null && !"get_public_key".equals(request.method)
+                && !"switch_relays".equals(request.method)) {
+            if (result == null || !result.isJsonPrimitive() || !result.getAsJsonPrimitive().isString()) {
+                request.callback.onError("Remote signer returned a malformed result");
+            } else {
+                try { request.callback.onResult(result.getAsString()); }
+                catch (RuntimeException e) { request.callback.onError("Could not process remote signer result"); }
+            }
+        }
     }
 
     private String sendRequest(final String method, List<String> params) {
+        return sendRequest(method, params, null);
+    }
+
+    private String sendRequest(final String method, List<String> params, final RpcListener callback) {
         final String signer = remoteSignerPubkey;
         if (closed || signer == null) return null;
         final String id = UUID.randomUUID().toString();
@@ -187,12 +213,26 @@ public final class Nip46Connection implements RelayConnection.Listener {
         final ScheduledFuture<?> timeout = RelayConnection.GROUP.schedule(new Runnable() {
             @Override public void run() {
                 Pending removed = pending.remove(id);
-                if (removed != null && "get_public_key".equals(method)) fail("Timed out waiting for the remote signer");
+                if (removed != null) {
+                    if (removed.callback != null) removed.callback.onError("Timed out waiting for the remote signer");
+                    if ("get_public_key".equals(method)) fail("Timed out waiting for the remote signer");
+                }
             }
         }, REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        pending.put(id, new Pending(method, timeout));
+        pending.put(id, new Pending(method, timeout, callback));
         for (RelayConnection relay : relays.values()) if (relay.isOpen()) relay.send(frame.toString());
         return id;
+    }
+
+    /** Requests a NIP-46 sign_event operation for the supplied unsigned event. */
+    public void signEvent(NostrEvent unsignedEvent, final RpcListener callback) {
+        if (unsignedEvent == null || callback == null) throw new IllegalArgumentException("Event and callback are required");
+        if (!connected || remoteSignerPubkey == null) { callback.onError("Remote signer is not connected"); return; }
+        JsonObject fields = unsignedEvent.toUnsignedJson();
+        sendRequest("sign_event", Collections.singletonList(fields.toString()), new RpcListener() {
+            @Override public void onResult(String result) { callback.onResult(result); }
+            @Override public void onError(String message) { callback.onError(message); }
+        });
     }
 
     private synchronized void switchRelays(List<String> requested) {
