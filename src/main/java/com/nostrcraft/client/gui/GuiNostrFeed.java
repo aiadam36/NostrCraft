@@ -227,6 +227,7 @@ public class GuiNostrFeed extends GuiScreen {
                 : "\u00a77Waiting for notes from relays...");
         for (NostrEvent e : feed) {
             String nip05 = nc.verifiedNip05(e.pubkey);
+            if (nip05 != null && nip05.startsWith("_@")) nip05 = nip05.substring(2);
             String verified = nip05 == null ? "" : " \u00a7a[" + Fmt.clean(nip05, 80) + "]";
             addLine("\u00a7b" + nc.displayName(e.pubkey) + verified + " \u00a78- \u00a77" + Fmt.ago(e.createdAt));
             addWrappedContent(Fmt.clean(e.content, 600), 12);
