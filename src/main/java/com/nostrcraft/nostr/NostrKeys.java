@@ -1,6 +1,7 @@
 package com.nostrcraft.nostr;
 
 import java.security.SecureRandom;
+import java.util.Arrays;
 
 /** A Nostr identity: secp256k1 secret key + x-only public key. */
 public final class NostrKeys {
@@ -44,4 +45,8 @@ public final class NostrKeys {
     public String getNsec() { return Bech32.encode("nsec", secret); }
 
     public byte[] sign(byte[] msg32) { return Schnorr.sign(msg32, secret); }
+    byte[] secretBytes() { return secret; }
+
+    /** Best-effort removal of this temporary key material from memory. */
+    public void destroy() { Arrays.fill(secret, (byte) 0); Arrays.fill(pub, (byte) 0); }
 }
