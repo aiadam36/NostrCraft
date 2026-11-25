@@ -1,6 +1,8 @@
 package com.nostrcraft.client;
 
 import com.nostrcraft.nostr.NostrClient;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.command.CommandBase;
 import net.minecraft.command.CommandException;
 import net.minecraft.command.ICommandSender;
@@ -15,7 +17,7 @@ public class NostrCommand extends CommandBase {
 
     @Override
     public String getUsage(ICommandSender sender) {
-        return "/nostr <login <nsec|hex> | generate | logout | whoami | export | post <text> | relay <list|add|remove> [url]>";
+        return "/nostr <login <nsec|hex> | connect <wss://relay[,relay...]> | disconnect | generate | logout | whoami | export | post <text> | relay <list|add|remove> [url]>";
     }
 
     @Override
@@ -35,6 +37,37 @@ public class NostrCommand extends CommandBase {
                     if (args.length < 2) throw new WrongUsageException("/nostr login <nsec1...|hex>");
                     nc.login(args[1]);
                     say(sender, "\u00a7aLogged in as " + nc.getNpub());
+                    break;
+                case "connect":
+                    if (args.length < 2) throw new WrongUsageException("/nostr connect <wss://relay[,wss://relay...]>");
+                    final ICommandSender commandSender = sender;
+                    java.util.List<String> signerRelays = new java.util.ArrayList<String>();
+                    for (String relay : args[1].split(",")) if (!relay.trim().isEmpty()) signerRelays.add(relay.trim());
+                    nc.connectRemoteSigner(signerRelays, "sign_event:0,sign_event:1,sign_event:3", new NostrClient.RemoteLoginListener() {
+                        @Override public void onUri(final String uri) {
+                            Minecraft.getMinecraft().addScheduledTask(new Runnable() {
+                                @Override public void run() {
+                                    GuiScreen.setClipboardString(uri);
+                                    say(commandSender, "\u00a7aSigner URI copied to clipboard. Paste it into your signer app.");
+                                }
+                            });
+                        }
+                        @Override public void onConnected(final String userPubkey, String remoteSignerPubkey) {
+                            Minecraft.getMinecraft().addScheduledTask(new Runnable() {
+                                @Override public void run() { say(commandSender, "\u00a7aConnected as " + nc.getNpub()); }
+                            });
+                        }
+                        @Override public void onError(final String message) {
+                            Minecraft.getMinecraft().addScheduledTask(new Runnable() {
+                                @Override public void run() { say(commandSender, "\u00a7cRemote signer: " + message); }
+                            });
+                        }
+                    });
+                    say(sender, "\u00a7eWaiting for signer approval. URI will be copied when a relay is ready.");
+                    break;
+                case "disconnect":
+                    nc.disconnectRemoteSigner();
+                    say(sender, "\u00a77Remote signer disconnected");
                     break;
                 case "generate":
                     nc.generateKey();

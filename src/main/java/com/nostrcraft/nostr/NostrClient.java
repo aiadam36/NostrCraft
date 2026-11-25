@@ -112,6 +112,7 @@ public class NostrClient implements RelayConnection.Listener {
     private volatile NostrKeys keys;
     private volatile Nip46Connection remoteConnection;
     private volatile NostrSigner remoteSigner;
+    private volatile String remoteConnectionUri;
     private volatile boolean clientTagEnabled;
     private volatile long followListCreatedAt;
 
@@ -187,6 +188,12 @@ public class NostrClient implements RelayConnection.Listener {
     // ------------------------------------------------------------ account (client-side only)
 
     public boolean isLoggedIn() { return accountPubkey() != null; }
+    public boolean isRemoteSignerConnected() { return remoteSigner != null; }
+    public boolean isRemoteSignerConnecting() {
+        Nip46Connection connection = remoteConnection;
+        return connection != null && remoteSigner == null;
+    }
+    public String getRemoteConnectionUri() { return remoteConnectionUri; }
     public String getNpub() {
         String pubkey = accountPubkey();
         return pubkey == null ? null : Bech32.encode("npub", Hex.decode(pubkey));
@@ -259,7 +266,7 @@ public class NostrClient implements RelayConnection.Listener {
                 callback.onConnected(userPubkey, signerPubkey);
             }
             @Override public void onError(String message) {
-                if (remoteConnection == holder[0]) { remoteSigner = null; remoteConnection = null; }
+                if (remoteConnection == holder[0]) { remoteSigner = null; remoteConnection = null; remoteConnectionUri = null; }
                 status = "Remote signer: " + message;
                 callback.onError(message);
             }
@@ -269,9 +276,10 @@ public class NostrClient implements RelayConnection.Listener {
         remoteConnection = connection;
         remoteSigner = null;
         if (previous != null) previous.close();
-        try { connection.start(signerRelays, permissions); }
+        try { remoteConnectionUri = connection.start(signerRelays, permissions); }
         catch (RuntimeException e) {
             remoteConnection = null;
+            remoteConnectionUri = null;
             connection.close();
             throw e;
         }
@@ -280,7 +288,7 @@ public class NostrClient implements RelayConnection.Listener {
 
     public void disconnectRemoteSigner() {
         Nip46Connection connection = remoteConnection;
-        remoteConnection = null; remoteSigner = null;
+        remoteConnection = null; remoteSigner = null; remoteConnectionUri = null;
         if (connection != null) connection.close();
     }
 
