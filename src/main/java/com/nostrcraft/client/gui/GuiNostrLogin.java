@@ -33,7 +33,7 @@ public class GuiNostrLogin extends GuiScreen {
         int half = (w - 4) / 2;
         int y = Math.max(8, (height - 222) / 2);
         String oldKey = input == null ? "" : input.getText();
-        String oldRelays = relayInput == null ? "wss://relay.damus.io" : relayInput.getText();
+        String oldRelays = relayInput == null ? joinRelays(nc.getNip46Relays()) : relayInput.getText();
         input = new GuiTextField(10, fontRenderer, x, y + 34, w, 18);
         input.setMaxStringLength(128);
         input.setText(oldKey);
@@ -163,6 +163,15 @@ public class GuiNostrLogin extends GuiScreen {
         } catch (IllegalArgumentException e) {
             message = "\u00a7c" + e.getMessage();
         }
+    }
+
+    private static String joinRelays(List<String> relays) {
+        StringBuilder out = new StringBuilder();
+        for (String relay : relays) {
+            if (out.length() > 0) out.append(", ");
+            out.append(relay);
+        }
+        return out.toString();
     }
 
     @Override

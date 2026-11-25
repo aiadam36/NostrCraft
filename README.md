@@ -17,10 +17,12 @@ Browse and post to **Nostr** from inside of your Minecraft
 |---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | NIP-01  | validated events with canonical id hashing and signatures; general `REQ` filters (ids, authors, kinds, tags, time, limit), persistent subscriptions with reconnect, `EVENT` publishing, and relay `OK` / `EOSE` / `NOTICE` / `CLOSED` handling |
 | NIP-02  | reads the logged-in account's kind-3 follow list and filters a Following feed by `p` tags                                                                                                                                                      |
+| NIP-44  | encrypts and decrypts version-2 payloads for NIP-46 remote-signer messages                                                                                                                                                                     |
 | NIP-05  | verifies kind-0 identifiers against `https://<domain>/.well-known/nostr.json`, marks matching profiles, and resolves searched identifiers back to matching profiles                                                                            |
 | NIP-19  | `npub` / `nsec` bech32 encode + decode; parses public entities, renders references as readable links, and opens profile/event detail views when clicked                                                                                        |
 | NIP-24  | reads kind-0 `display_name`, `website`, `banner`, `bot`, and partial `birthday` metadata; displays profile details and asynchronously loads bounded banner images; ignores deprecated metadata fields and kind-3 relay maps                    |
 | NIP-50  | checks relay NIP-11 capabilities before using `search`; supports `from:`, `kind:`, `since:`, `until:`, and `#tag` filters with local text matching on relays without NIP-50                                                                    |
+| NIP-46  | connects to a remote signer with `nostrconnect://`, fetches the account public key, routes event signing remotely, validates signed events, and follows signer relay changes                                                                   |
 | NIP-89  | discovers app handlers recommended by you or followed authors for addressable events; allows publishing handler recommendations and an opt-in `client` tag on notes                                                                            |
 | BIP-340 | Schnorr sign + verify (pure `BigInteger`, tested against the official vector)                                                                                                                                                                  |
 
@@ -38,6 +40,8 @@ All commands were client-side only, they were never sent to the server
 ```
 /nostr generate
 /nostr login <nsec1...|hex>
+/nostr connect [wss://signer-relay[,wss://another-relay...]]
+/nostr disconnect
 /nostr logout
 /nostr whoami
 /nostr export
@@ -46,6 +50,8 @@ All commands were client-side only, they were never sent to the server
 ```
 
 > Be careful with `/nostr export`, it prints your nsec
+
+`/nostr connect` remembers the selected signer relays in `config/nostrcraft.json`. Open the Account screen to copy the generated `nostrconnect://` URI, or use the command and paste the copied URI into your signer app. Approve the requested signing permissions in the signer. `/nostr disconnect` ends a remote session; `/nostr logout` also clears the active local account.
 
 ## Search bar
 
@@ -109,7 +115,9 @@ src/main/java/com/nostrcraft/nostr/ -> Schnorr, Bech32, NostrEvent, RelayConnect
 
 ## Security notes
 
-- Secret key is stored **in plain text** in `config/nostrcraft.json`, need to implement NIP-46 (remote signer) before real use
+- Local `nsec` keys are stored **in plain text** in `config/nostrcraft.json`; use a remote signer if you do not want the Nostr account key stored by this mod
+- NIP-46 keeps the account key in the signer. NostrCraft creates a temporary client key for each connection, keeps it in memory, and best-effort clears it when disconnected or logged out. It does not restore remote sessions after a game restart, because restoring would require saving that private client key; reconnect and approve the session again after restarting
+- For NIP-46, NostrCraft saves only the non-secret signer relay preference. The one-time connection secret and `nostrconnect://` URI are not saved in the config; treat the URI as a short-lived pairing token and avoid sharing it
 - The Schnorr code is not constant-time. Fine for a game client, not for a server handling many keys
 - All relay-supplied text is stripped of `§` formatting codes and control characters before display
 - Old Java 8 builds may lack the root CA for some relays' TLS certs; update Java 8 or edit relays with `/nostr relay`
@@ -127,7 +135,6 @@ src/main/java/com/nostrcraft/nostr/ -> Schnorr, Bech32, NostrEvent, RelayConnect
 - NIP-22 comment
 - NIP-25 reactions (right-click a note to like)
 - NIP-42 auth
-- NIP-46 remote signing
 - NIP-57 zaps
 - NIP-65 relay lists
 - dedicated NostrCraft signing identity and hosted web handler endpoint for NIP-89 descriptors

@@ -17,7 +17,7 @@ public class NostrCommand extends CommandBase {
 
     @Override
     public String getUsage(ICommandSender sender) {
-        return "/nostr <login <nsec|hex> | connect <wss://relay[,relay...]> | disconnect | generate | logout | whoami | export | post <text> | relay <list|add|remove> [url]>";
+        return "/nostr <login <nsec|hex> | connect [wss://relay[,relay...]] | disconnect | generate | logout | whoami | export | post <text> | relay <list|add|remove> [url]>";
     }
 
     @Override
@@ -39,10 +39,13 @@ public class NostrCommand extends CommandBase {
                     say(sender, "\u00a7aLogged in as " + nc.getNpub());
                     break;
                 case "connect":
-                    if (args.length < 2) throw new WrongUsageException("/nostr connect <wss://relay[,wss://relay...]>");
                     final ICommandSender commandSender = sender;
                     java.util.List<String> signerRelays = new java.util.ArrayList<String>();
-                    for (String relay : args[1].split(",")) if (!relay.trim().isEmpty()) signerRelays.add(relay.trim());
+                    if (args.length > 1) {
+                        for (String relay : args[1].split(",")) if (!relay.trim().isEmpty()) signerRelays.add(relay.trim());
+                    } else {
+                        signerRelays.addAll(nc.getNip46Relays());
+                    }
                     nc.connectRemoteSigner(signerRelays, "sign_event:0,sign_event:1,sign_event:3", new NostrClient.RemoteLoginListener() {
                         @Override public void onUri(final String uri) {
                             Minecraft.getMinecraft().addScheduledTask(new Runnable() {

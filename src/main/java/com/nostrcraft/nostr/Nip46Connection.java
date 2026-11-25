@@ -28,6 +28,8 @@ public final class Nip46Connection implements RelayConnection.Listener {
         /** Called after the signer is authenticated and the account pubkey is fetched. */
         void onConnected(String userPubkey, String remoteSignerPubkey);
         void onError(String message);
+        /** Called when the remote signer changes the relays used by this session. */
+        default void onRelaysChanged(List<String> relays) { }
     }
 
     public interface RpcListener {
@@ -97,6 +99,7 @@ public final class Nip46Connection implements RelayConnection.Listener {
     public boolean isConnected() { return connected; }
     public String getUserPubkey() { return userPubkey; }
     public String getRemoteSignerPubkey() { return remoteSignerPubkey; }
+    public List<String> getRelayUrls() { return relayUrls; }
 
     @Override public void onOpen(RelayConnection relay) {
         if (closed) { relay.close(); return; }
@@ -235,6 +238,22 @@ public final class Nip46Connection implements RelayConnection.Listener {
         });
     }
 
+    /** Sends the courtesy logout RPC, then destroys the temporary client keypair. */
+    public void logoutAndClose() {
+        if (!connected || closed) { close(); return; }
+        final ScheduledFuture<?> fallback = RelayConnection.GROUP.schedule(new Runnable() {
+            @Override public void run() { close(); }
+        }, 2, TimeUnit.SECONDS);
+        sendRequest("logout", Collections.<String>emptyList(), new RpcListener() {
+            private void finish() {
+                fallback.cancel(false);
+                close();
+            }
+            @Override public void onResult(String result) { finish(); }
+            @Override public void onError(String message) { finish(); }
+        });
+    }
+
     private synchronized void switchRelays(List<String> requested) {
         if (closed) return;
         final List<String> validated;
@@ -245,6 +264,7 @@ public final class Nip46Connection implements RelayConnection.Listener {
         relays.clear(); relayUrls = validated;
         for (RelayConnection relay : old) relay.close();
         for (String relayUrl : validated) openRelay(relayUrl);
+        listener.onRelaysChanged(relayUrls);
     }
 
     private void openRelay(String url) {

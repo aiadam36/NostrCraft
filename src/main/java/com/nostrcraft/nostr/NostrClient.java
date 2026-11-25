@@ -115,6 +115,7 @@ public class NostrClient implements RelayConnection.Listener {
     private volatile String remoteConnectionUri;
     private volatile boolean clientTagEnabled;
     private volatile long followListCreatedAt;
+    private final List<String> nip46RelayPreferences = new CopyOnWriteArrayList<String>();
 
     private final List<String> relayUrls = new CopyOnWriteArrayList<String>();
     private final Map<String, RelayConnection> relays = new ConcurrentHashMap<String, RelayConnection>();
@@ -194,6 +195,10 @@ public class NostrClient implements RelayConnection.Listener {
         return connection != null && remoteSigner == null;
     }
     public String getRemoteConnectionUri() { return remoteConnectionUri; }
+    public List<String> getNip46Relays() {
+        if (nip46RelayPreferences.isEmpty()) return Collections.singletonList(DEFAULT_RELAYS[0]);
+        return Collections.unmodifiableList(new ArrayList<String>(nip46RelayPreferences));
+    }
     public String getNpub() {
         String pubkey = accountPubkey();
         return pubkey == null ? null : Bech32.encode("npub", Hex.decode(pubkey));
@@ -270,13 +275,26 @@ public class NostrClient implements RelayConnection.Listener {
                 status = "Remote signer: " + message;
                 callback.onError(message);
             }
+            @Override public void onRelaysChanged(List<String> nextRelays) {
+                if (remoteConnection != holder[0] || nextRelays == null || nextRelays.isEmpty()) return;
+                nip46RelayPreferences.clear();
+                nip46RelayPreferences.addAll(nextRelays);
+                save();
+            }
         });
         holder[0] = connection;
         Nip46Connection previous = remoteConnection;
         remoteConnection = connection;
         remoteSigner = null;
         if (previous != null) previous.close();
-        try { remoteConnectionUri = connection.start(signerRelays, permissions); }
+        List<String> selectedRelays = signerRelays == null || signerRelays.isEmpty()
+                ? getNip46Relays() : signerRelays;
+        try {
+            remoteConnectionUri = connection.start(selectedRelays, permissions);
+            nip46RelayPreferences.clear();
+            nip46RelayPreferences.addAll(connection.getRelayUrls());
+            save();
+        }
         catch (RuntimeException e) {
             remoteConnection = null;
             remoteConnectionUri = null;
@@ -289,7 +307,7 @@ public class NostrClient implements RelayConnection.Listener {
     public void disconnectRemoteSigner() {
         Nip46Connection connection = remoteConnection;
         remoteConnection = null; remoteSigner = null; remoteConnectionUri = null;
-        if (connection != null) connection.close();
+        if (connection != null) connection.logoutAndClose();
     }
 
     public void login(String input) {
@@ -1232,6 +1250,14 @@ public class NostrClient implements RelayConnection.Listener {
                 if (o.has("nip89ClientTag")) clientTagEnabled = o.get("nip89ClientTag").getAsBoolean();
                 if (o.has("relays"))
                     for (JsonElement e : o.getAsJsonArray("relays")) relayUrls.add(e.getAsString());
+                if (o.has("nip46Relays") && o.get("nip46Relays").isJsonArray()) {
+                    JsonArray signerRelays = o.getAsJsonArray("nip46Relays");
+                    for (JsonElement e : signerRelays) {
+                        if (e.isJsonPrimitive() && e.getAsJsonPrimitive().isString()
+                                && nip46RelayPreferences.size() < 5 && !e.getAsString().trim().isEmpty())
+                            nip46RelayPreferences.add(e.getAsString().trim());
+                    }
+                }
             }
         } catch (Exception e) {
             status = "Config error: " + e.getMessage();
@@ -1249,6 +1275,9 @@ public class NostrClient implements RelayConnection.Listener {
             JsonArray rs = new JsonArray();
             for (String r : relayUrls) rs.add(new JsonPrimitive(r));
             o.add("relays", rs);
+            JsonArray signerRelays = new JsonArray();
+            for (String r : nip46RelayPreferences) signerRelays.add(new JsonPrimitive(r));
+            o.add("nip46Relays", signerRelays);
             configFile.getParentFile().mkdirs();
             Files.write(configFile.toPath(), new GsonBuilder().setPrettyPrinting().create().toJson(o).getBytes(StandardCharsets.UTF_8));
             // best effort: owner-only access (the file holds your secret key in plain text!)
